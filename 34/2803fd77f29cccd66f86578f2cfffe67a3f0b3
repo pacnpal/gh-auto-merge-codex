@@ -1,0 +1,20 @@
+codex-automerge.sh
+  s_faedefccbddd59::t_c5ebfd683a5b2b 15-18,21-25,27-32,34,37-41
+  s_faedefccbddd59::t_94b5d17b4ca9f0 4-5,11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "342803fd77f29cccd66f86578f2cfffe67a3f0b3",
+  "prompts": {},
+  "sessions": {
+    "s_faedefccbddd59": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de0900aa-9726-46db-bce5-dbf256c3629f",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
