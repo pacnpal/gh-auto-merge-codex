@@ -24,13 +24,16 @@ review APIs never see it. This script polls for that reaction and merges.
 REPO=owner/name ./codex-automerge.sh
 ```
 
-`BOT=<login>` overrides the reviewer login if you want to key off a different bot.
+`BOT=<login>` overrides the reviewer login (matched exactly) if you want to key
+off a different bot.
 
 ## Behavior
 
 Every interval it lists open PRs, checks each for a `+1` from the bot, and runs
-`gh pr merge --squash --auto`. On repos with auto-merge enabled that queues
-behind required checks; on repos without it, the merge happens immediately.
+`gh pr merge --squash --auto`. That queues the merge behind the repo's required
+checks. **Auto-merge must be allowed on the repo** (Settings → General → Allow
+auto-merge); where it isn't, `gh` rejects the request and the script logs
+`MERGE FAILED`.
 
 Runs until you stop it. Everything is logged with timestamps.
 

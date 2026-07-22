@@ -22,9 +22,11 @@ while :; do
   log "poll: $(echo "$prs" | grep -c '[0-9]') open PR(s)"
 
   for pr in $prs; do
-    reactions=$(gh api "repos/$REPO/issues/$pr/reactions" \
+    # ponytail: per_page=100 over --paginate — --jq runs per page, which would
+    # split the joined list across lines and break the case match below.
+    reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
       -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-      --jq "[.[] | select(.user.login | test(\"$BOT\")) | .content] | join(\",\")")
+      --jq "[.[] | select(.user.login == \"$BOT\") | .content] | join(\",\")")
 
     case ",$reactions," in
       *,+1,*) ;;
@@ -32,8 +34,7 @@ while :; do
     esac
 
     log "  #$pr: 👍 — squash merging"
-    # --auto queues behind required checks on repos with auto-merge enabled;
-    # merges immediately on repos without it.
+    # --auto queues behind required checks; needs auto-merge allowed on the repo.
     if gh pr merge -R "$REPO" "$pr" --squash --auto; then
       log "  #$pr: merge requested"
     else
