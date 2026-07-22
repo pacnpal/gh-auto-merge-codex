@@ -34,11 +34,16 @@ while :; do
     esac
 
     log "  #$pr: 👍 — squash merging"
-    # --auto queues behind required checks; needs auto-merge allowed on the repo.
-    if gh pr merge -R "$REPO" "$pr" --squash --auto; then
-      log "  #$pr: merge requested"
+    # --auto queues behind required checks, but repos without auto-merge allowed
+    # reject it. Fall back to merging now — gated on that specific error, so a
+    # conflict or a failing required check still stops us instead of merging.
+    if err=$(gh pr merge -R "$REPO" "$pr" --squash --auto 2>&1); then
+      log "  #$pr: merge queued behind required checks"
+    elif grep -qiE 'auto.?merge' <<<"$err" \
+      && err=$(gh pr merge -R "$REPO" "$pr" --squash 2>&1); then
+      log "  #$pr: auto-merge unavailable — merged now"
     else
-      log "  #$pr: MERGE FAILED"
+      log "  #$pr: MERGE FAILED: ${err//$'\n'/ }"
     fi
   done
   sleep "$INTERVAL"

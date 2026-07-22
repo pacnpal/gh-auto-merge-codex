@@ -30,10 +30,18 @@ off a different bot.
 ## Behavior
 
 Every interval it lists open PRs, checks each for a `+1` from the bot, and runs
-`gh pr merge --squash --auto`. That queues the merge behind the repo's required
-checks. **Auto-merge must be allowed on the repo** (Settings → General → Allow
-auto-merge); where it isn't, `gh` rejects the request and the script logs
-`MERGE FAILED`.
+`gh pr merge --squash --auto`, queuing the merge behind the repo's required
+checks.
+
+Where auto-merge isn't allowed on the repo, `gh` rejects that, and the script
+retries the merge without `--auto`. The fallback is gated on that specific
+error, so a conflict or a failing required check still logs `MERGE FAILED`
+rather than merging.
+
+> [!NOTE]
+> On the fallback path the merge happens **immediately**, not after CI. If the
+> repo has no branch protection requiring checks, a PR can merge with CI still
+> running or red. Enable auto-merge, or protect the branch, if that matters.
 
 Runs until you stop it. Everything is logged with timestamps.
 
