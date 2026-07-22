@@ -1,0 +1,19 @@
+README.md
+  s_9f7e7a1c89fd3a::t_af5dbf91f2a0f2 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.15",
+  "base_commit_sha": "8eec51336149317663c32cb847ee174656336992",
+  "prompts": {},
+  "sessions": {
+    "s_9f7e7a1c89fd3a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "77e0e1e2-d461-4d69-aa89-19aa2c68d4fa",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
