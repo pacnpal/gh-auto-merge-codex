@@ -32,8 +32,10 @@ REPO=owner/name ./codex-automerge.sh
 ./codex-automerge.sh --admin  # merge now, bypassing branch protection
 ```
 
-`BOT=<login>` overrides the reviewer login (matched exactly) if you want to key
-off a different bot.
+`BOT=<login>` overrides the reviewer login if you want to key off a different
+bot. It is a prefix match, because the reactions API reports the login with a
+`[bot]` suffix — `chatgpt-codex-connector` matches
+`chatgpt-codex-connector[bot]`.
 
 ## Behavior
 
@@ -46,14 +48,23 @@ retries the merge without `--auto`. The fallback is gated on that specific
 error, so a conflict or a failing required check still logs `MERGE FAILED`
 rather than merging.
 
-`--force` skips `--auto` entirely and merges immediately on every PR. It does
-**not** bypass branch protection: on a repo with required checks, GitHub rejects
-the merge until they are green, so a 👍'd PR logs `MERGE FAILED` each poll and
-merges once it is mergeable.
+`--force` skips `--auto` and merges immediately. It does **not** bypass branch
+protection: on a repo with required checks, GitHub rejects the merge until they
+are green, so a 👍'd PR logs `MERGE FAILED` each poll and merges once it is
+mergeable.
+
+On a branch with a **merge queue**, `--force` cannot merge now at all: with
+required checks pending, `gh pr merge` enables auto-merge even without `--auto`.
+The script does not claim otherwise — it only logs `merged now` when `gh` says
+`Merged pull request`, and logs `not merged` plus `gh`'s own message otherwise.
+Only `--admin` bypasses a merge queue.
 
 `--admin` is `--force` plus `gh pr merge --admin`, which bypasses branch
-protection outright — required checks, required reviews, and all. It needs admin
-rights on the repo.
+protection outright — required checks, required reviews, merge queue, and all.
+It needs admin rights on the repo.
+
+The two are mutually exclusive; the last one wins (`--admin --force` runs as
+`--force`). Any other flag, or a non-numeric interval, exits with usage.
 
 > [!NOTE]
 > On the fallback, `--force`, and `--admin` paths the merge happens

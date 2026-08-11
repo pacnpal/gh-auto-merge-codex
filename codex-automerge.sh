@@ -18,8 +18,12 @@ ADMIN=""
 INTERVAL=60
 for arg in "$@"; do
   case "$arg" in
-    --force) FORCE="--force" ;;
+    # ponytail: each mode sets both vars — last flag wins outright, so
+    # `--admin --force` downgrades instead of silently keeping --admin.
+    --force) FORCE="--force"; ADMIN="" ;;
     --admin) FORCE="--admin"; ADMIN="--admin" ;;
+    # ponytail: one arm rejects both typo'd flags and a non-numeric interval.
+    ''|*[!0-9]*) echo "usage: $0 [--force|--admin] [interval_seconds]" >&2; exit 2 ;;
     *) INTERVAL="$arg" ;;
   esac
 done
@@ -36,9 +40,11 @@ while :; do
   for pr in $prs; do
     # ponytail: per_page=100 over --paginate — --jq runs per page, which would
     # split the joined list across lines and break the case match below.
+    # ponytail: startswith, not == — the API reports the login as
+    # "chatgpt-codex-connector[bot]", so an exact match never fires.
     reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
       -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-      --jq "[.[] | select(.user.login == \"$BOT\") | .content] | join(\",\")")
+      --jq "[.[] | select(.user.login | startswith(\"$BOT\")) | .content] | join(\",\")")
 
     case ",$reactions," in
       *,+1,*) ;;
@@ -55,7 +61,14 @@ while :; do
     # grep must never run. ${ADMIN} is unquoted on purpose: one flag or nothing.
     elif { [[ -n "$FORCE" ]] || grep -qiE 'auto.?merge' <<<"$err"; } \
       && err=$(gh pr merge -R "$REPO" "$pr" --squash ${ADMIN} 2>&1); then
-      log "  #$pr: merged now (${FORCE:-auto-merge unavailable})"
+      # Without --auto, gh still enables auto-merge (or the merge queue) when
+      # required checks are pending — so a success here is not proof of a merge.
+      # Trust gh's own wording rather than claiming one.
+      if grep -qi 'merged pull request' <<<"$err"; then
+        log "  #$pr: merged now (${FORCE:-auto-merge unavailable})"
+      else
+        log "  #$pr: not merged — ${err//$'\n'/ }"
+      fi
     else
       log "  #$pr: MERGE FAILED: ${err//$'\n'/ }"
     fi
