@@ -24,6 +24,14 @@ review APIs never see it. This script polls for that reaction and merges.
 REPO=owner/name ./codex-automerge.sh
 ```
 
+```bash
+./codex-automerge.sh --force  # merge now, don't queue with --auto
+```
+
+```bash
+./codex-automerge.sh --admin  # merge now, bypassing branch protection
+```
+
 `BOT=<login>` overrides the reviewer login (matched exactly) if you want to key
 off a different bot.
 
@@ -38,10 +46,19 @@ retries the merge without `--auto`. The fallback is gated on that specific
 error, so a conflict or a failing required check still logs `MERGE FAILED`
 rather than merging.
 
+`--force` skips `--auto` entirely and merges immediately on every PR. It does
+**not** bypass branch protection: on a repo with required checks, GitHub rejects
+the merge until they are green, so a 👍'd PR logs `MERGE FAILED` each poll and
+merges once it is mergeable.
+
+`--admin` is `--force` plus `gh pr merge --admin`, which bypasses branch
+protection outright — required checks, required reviews, and all. It needs admin
+rights on the repo.
+
 > [!NOTE]
-> On the fallback path the merge happens **immediately**, not after CI. If the
-> repo has no branch protection requiring checks, a PR can merge with CI still
-> running or red. Enable auto-merge, or protect the branch, if that matters.
+> On the fallback, `--force`, and `--admin` paths the merge happens
+> **immediately**, not after CI. With `--admin` a 👍 from Codex is the *only*
+> gate: PRs merge with CI red, CI still running, or other reviews outstanding.
 
 Runs until you stop it. Everything is logged with timestamps.
 
