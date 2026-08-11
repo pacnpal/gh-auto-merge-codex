@@ -33,9 +33,10 @@ REPO=owner/name ./codex-automerge.sh
 ```
 
 `BOT=<login>` overrides the reviewer login if you want to key off a different
-bot. It is a prefix match, because the reactions API reports the login with a
-`[bot]` suffix — `chatgpt-codex-connector` matches
-`chatgpt-codex-connector[bot]`.
+bot. It matches two exact logins — the value itself and its `[bot]` form, since
+the reactions API reports GitHub Apps as `chatgpt-codex-connector[bot]`. Not a
+prefix match: on a public repo, anyone could register a login starting with
+`chatgpt-codex-connector` and 👍 their own PR.
 
 ## Behavior
 

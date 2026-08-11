@@ -40,11 +40,12 @@ while :; do
   for pr in $prs; do
     # ponytail: per_page=100 over --paginate — --jq runs per page, which would
     # split the joined list across lines and break the case match below.
-    # ponytail: startswith, not == — the API reports the login as
-    # "chatgpt-codex-connector[bot]", so an exact match never fires.
+    # Two exact logins, not a prefix: the API reports GitHub Apps as
+    # "chatgpt-codex-connector[bot]", but a prefix match would also accept
+    # "chatgpt-codex-connector-attacker" — anyone can register that and 👍.
     reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
       -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-      --jq "[.[] | select(.user.login | startswith(\"$BOT\")) | .content] | join(\",\")")
+      --jq "[.[] | select(.user.login == \"$BOT\" or .user.login == \"${BOT}[bot]\") | .content] | join(\",\")")
 
     case ",$reactions," in
       *,+1,*) ;;
