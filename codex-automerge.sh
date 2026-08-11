@@ -1,16 +1,28 @@
 #!/usr/bin/env bash
 # Watch a repo's open PRs; squash-merge each one Codex has 👍'd on the PR body.
 #
-#   ./codex-automerge.sh [interval_seconds]        # repo of the current directory
-#   REPO=owner/name ./codex-automerge.sh [interval] # explicit override
+#   ./codex-automerge.sh [--force|--admin] [interval_seconds]  # repo of the cwd
+#   REPO=owner/name ./codex-automerge.sh [--force|--admin] [interval]  # override
+#
+# --force merges immediately instead of queuing with --auto.
+# --admin does the same and bypasses branch protection (gh pr merge --admin).
 #
 # Codex (chatgpt-codex-connector) signals "reviewed, no findings" with a +1
 # reaction on the PR body, not a review or comment.
 set -euo pipefail
 
 REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
-INTERVAL="${1:-60}"
 BOT="${BOT:-chatgpt-codex-connector}"
+FORCE=""
+ADMIN=""
+INTERVAL=60
+for arg in "$@"; do
+  case "$arg" in
+    --force) FORCE="--force" ;;
+    --admin) FORCE="--admin"; ADMIN="--admin" ;;
+    *) INTERVAL="$arg" ;;
+  esac
+done
 
 log() { echo "$(date '+%F %T') $*"; }
 
@@ -37,11 +49,13 @@ while :; do
     # --auto queues behind required checks, but repos without auto-merge allowed
     # reject it. Fall back to merging now — gated on that specific error, so a
     # conflict or a failing required check still stops us instead of merging.
-    if err=$(gh pr merge -R "$REPO" "$pr" --squash --auto 2>&1); then
+    if [[ -z "$FORCE" ]] && err=$(gh pr merge -R "$REPO" "$pr" --squash --auto 2>&1); then
       log "  #$pr: merge queued behind required checks"
-    elif grep -qiE 'auto.?merge' <<<"$err" \
-      && err=$(gh pr merge -R "$REPO" "$pr" --squash 2>&1); then
-      log "  #$pr: auto-merge unavailable — merged now"
+    # ponytail: || order is load-bearing — under --force $err is unset, so the
+    # grep must never run. ${ADMIN} is unquoted on purpose: one flag or nothing.
+    elif { [[ -n "$FORCE" ]] || grep -qiE 'auto.?merge' <<<"$err"; } \
+      && err=$(gh pr merge -R "$REPO" "$pr" --squash ${ADMIN} 2>&1); then
+      log "  #$pr: merged now (${FORCE:-auto-merge unavailable})"
     else
       log "  #$pr: MERGE FAILED: ${err//$'\n'/ }"
     fi
