@@ -1,0 +1,32 @@
+test_cli_target.sh
+  s_84dfd7c59bc692::t_baba76d88842c0 11-12,18,21-35,56-63,76-85
+  s_1b6f1dea708a8c::t_d4cccad923026d 86
+README.md
+  s_84dfd7c59bc692::t_baba76d88842c0 39,48-50,87,95-96
+codex-automerge.sh
+  s_84dfd7c59bc692::t_baba76d88842c0 40,50,65-69,75,77-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "d80139dc6f6a742440fd32f99088c4a9b759f9ea",
+  "prompts": {},
+  "sessions": {
+    "s_1b6f1dea708a8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a525e606-f887-4906-8aed-a331d9c18412",
+        "model": "claude-opus-5"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    },
+    "s_84dfd7c59bc692": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02f55-6798-7571-9ebe-fa32744f6e46",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
