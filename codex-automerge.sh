@@ -1,39 +1,44 @@
 #!/usr/bin/env bash
 # Watch a repo's open PRs; squash-merge each one Codex has 👍'd on the PR body.
 #
-#   ./codex-automerge.sh [interval_seconds]                  # repo of the current directory
-#   ./codex-automerge.sh --repo ../checkout [interval]       # local checkout (relative is fine)
-#   ./codex-automerge.sh --repo owner/name [interval]        # GitHub repository
-#   ./codex-automerge.sh --admin --repo owner/name [interval] # bypass merge requirements
-#   REPO=owner/name ./codex-automerge.sh [interval]          # explicit override
+#   ./codex-automerge.sh [--force|--admin] [-R|--repo <directory|owner/repo>] [interval_seconds]
+#   REPO=owner/name ./codex-automerge.sh [--force|--admin] [interval]
+#
+# --force merges immediately instead of queuing with --auto.
+# --admin does the same and bypasses branch protection (gh pr merge --admin).
 #
 # Codex (chatgpt-codex-connector) signals "reviewed, no findings" with a +1
 # reaction on the PR body, not a review or comment.
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 [--admin] [--repo <directory|owner/repo>] [interval_seconds]" >&2
-  exit 2
+  echo "usage: $0 [--force|--admin] [-R|--repo <directory|owner/repo>] [interval_seconds]"
 }
 
 repo_target=""
-interval=""
-admin=false
+FORCE=""
+ADMIN=""
+INTERVAL=60
+interval_set=false
 while (($#)); do
   case "$1" in
-    --admin)
-      admin=true
-      shift
-      ;;
+    # ponytail: each mode sets both vars — last flag wins outright, so
+    # `--admin --force` downgrades instead of silently keeping --admin.
+    --force) FORCE="--force"; ADMIN=""; shift ;;
+    --admin) FORCE="--admin"; ADMIN="--admin"; shift ;;
     -R|--repo)
-      (($# >= 2)) || usage
+      (($# >= 2)) || { usage >&2; exit 2; }
+      [[ -n "$2" ]] || { usage >&2; exit 2; }
       repo_target="$2"
       shift 2
       ;;
-    -h|--help) usage ;;
+    -h|--help) usage; exit ;;
+    # ponytail: one arm rejects both typo'd flags and a non-numeric interval.
+    ''|*[!0-9]*) usage >&2; exit 2 ;;
     *)
-      [[ -z "$interval" ]] || usage
-      interval="$1"
+      [[ "$interval_set" == false ]] || { usage >&2; exit 2; }
+      INTERVAL="$1"
+      interval_set=true
       shift
       ;;
   esac
@@ -48,10 +53,7 @@ if [[ -n "$repo_target" ]]; then
 else
   REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 fi
-INTERVAL="${interval:-60}"
 BOT="${BOT:-chatgpt-codex-connector}"
-merge_flags=(--squash --auto)
-[[ "$admin" == true ]] && merge_flags=(--squash --admin)
 
 log() { echo "$(date '+%F %T') $*"; }
 
@@ -63,9 +65,13 @@ while :; do
   log "poll: $(echo "$prs" | grep -c '[0-9]') open PR(s)"
 
   for pr in $prs; do
-    reactions=$(gh api "repos/$REPO/issues/$pr/reactions" \
+    # ponytail: per_page=100 over --paginate — --jq runs per page, which would
+    # split the joined list across lines and break the case match below.
+    # ponytail: startswith, not == — the API reports the login as
+    # "chatgpt-codex-connector[bot]", so an exact match never fires.
+    reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
       -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-      --jq "[.[] | select(.user.login | test(\"$BOT\")) | .content] | join(\",\")")
+      --jq "[.[] | select(.user.login | startswith(\"$BOT\")) | .content] | join(\",\")")
 
     case ",$reactions," in
       *,+1,*) ;;
@@ -73,12 +79,25 @@ while :; do
     esac
 
     log "  #$pr: 👍 — squash merging"
-    # --auto queues behind required checks on repos with auto-merge enabled;
-    # merges immediately on repos without it.
-    if gh pr merge -R "$REPO" "$pr" "${merge_flags[@]}"; then
-      log "  #$pr: merge requested"
+    # --auto queues behind required checks, but repos without auto-merge allowed
+    # reject it. Fall back to merging now — gated on that specific error, so a
+    # conflict or a failing required check still stops us instead of merging.
+    if [[ -z "$FORCE" ]] && err=$(gh pr merge -R "$REPO" "$pr" --squash --auto 2>&1); then
+      log "  #$pr: merge queued behind required checks"
+    # ponytail: || order is load-bearing — under --force $err is unset, so the
+    # grep must never run. ${ADMIN} is unquoted on purpose: one flag or nothing.
+    elif { [[ -n "$FORCE" ]] || grep -qiE 'auto.?merge' <<<"$err"; } \
+      && err=$(gh pr merge -R "$REPO" "$pr" --squash ${ADMIN} 2>&1); then
+      # Without --auto, gh still enables auto-merge (or the merge queue) when
+      # required checks are pending — so a success here is not proof of a merge.
+      # Trust gh's own wording rather than claiming one.
+      if grep -qi 'merged pull request' <<<"$err"; then
+        log "  #$pr: merged now (${FORCE:-auto-merge unavailable})"
+      else
+        log "  #$pr: not merged — ${err//$'\n'/ }"
+      fi
     else
-      log "  #$pr: MERGE FAILED"
+      log "  #$pr: MERGE FAILED: ${err//$'\n'/ }"
     fi
   done
   sleep "$INTERVAL"

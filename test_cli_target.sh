@@ -44,4 +44,10 @@ admin_args=$(<"$admin_args_file")
 [[ "$admin_args" == *"--admin"* ]]
 [[ "$admin_args" != *"--auto"* ]]
 
+force_args_file="$TMPDIR_TEST/force-args"
+(cd "$TMPDIR_TEST" && env -u REPO MOCK_PR=7 GH_ARGS="$force_args_file" PATH="$TMPDIR_TEST/bin:$PATH" "$ROOT/codex-automerge.sh" --force --repo octo/direct-repo 1 >/dev/null 2>&1) || true
+force_args=$(<"$force_args_file")
+[[ "$force_args" != *"--admin"* ]]
+[[ "$force_args" != *"--auto"* ]]
+
 [[ $(<"$ROOT/Procfile") == $'# Hivemind runs this named process from the Procfile.\n# Replace owner/repo with the GitHub repository to monitor.\ncodex-automerge: ./codex-automerge.sh --admin --repo owner/repo' ]]
