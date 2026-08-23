@@ -13,29 +13,49 @@ review APIs never see it. This script polls for that reaction and merges.
 ## Usage
 
 ```bash
-./codex-automerge.sh          # repo of the current directory, poll every 60s
+./codex-automerge.sh [--force|--admin] [-R|--repo <directory|owner/repo>] [interval_seconds]
 ```
 
 ```bash
-./codex-automerge.sh 300      # poll every 5 minutes
+./codex-automerge.sh --repo ../checkout  # local checkout; relative paths work
+```
+
+```bash
+./codex-automerge.sh --repo owner/repo   # monitor a GitHub repository directly
 ```
 
 ```bash
 REPO=owner/name ./codex-automerge.sh
 ```
 
-```bash
-./codex-automerge.sh --force  # merge now, don't queue with --auto
-```
+## Options
 
-```bash
-./codex-automerge.sh --admin  # merge now, bypassing branch protection
-```
+| Option | Description |
+| --- | --- |
+| `-R`, `--repo <directory\|owner/repo>` | Monitor a local Git checkout or a GitHub repository reference. This overrides `REPO`. |
+| `--force` | Merge without requesting auto-merge. This does not bypass branch protection. |
+| `--admin` | Merge with administrator privileges and bypass branch protection. |
+| `-h`, `--help` | Print command usage. |
+| `interval_seconds` | Positive polling interval in seconds. Defaults to `60`. |
 
-`BOT=<login>` overrides the reviewer login if you want to key off a different
-bot. It is a prefix match, because the reactions API reports the login with a
-`[bot]` suffix — `chatgpt-codex-connector` matches
-`chatgpt-codex-connector[bot]`.
+### Environment variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `REPO` | Current directory's repository | GitHub repository to monitor when `--repo` is not set. |
+| `BOT` | `chatgpt-codex-connector` | GitHub login whose 👍 reaction authorizes a merge. |
+
+`BOT` matches its exact login or that login with GitHub's `[bot]` suffix —
+`chatgpt-codex-connector` matches `chatgpt-codex-connector[bot]`, but not an
+unrelated login with the same prefix.
+
+## Hivemind
+
+The included `Procfile` is for [Hivemind](https://github.com/darthsim/hivemind), a process manager for Procfile-based applications. Replace `owner/repo` with the repository to monitor, then run:
+
+```sh
+hivemind
+```
 
 ## Behavior
 
@@ -64,7 +84,7 @@ protection outright — required checks, required reviews, merge queue, and all.
 It needs admin rights on the repo.
 
 The two are mutually exclusive; the last one wins (`--admin --force` runs as
-`--force`). Any other flag, or a non-numeric interval, exits with usage.
+`--force`). Any other flag, a non-numeric interval, or `0` exits with usage.
 
 > [!NOTE]
 > On the fallback, `--force`, and `--admin` paths the merge happens
@@ -72,6 +92,14 @@ The two are mutually exclusive; the last one wins (`--admin --force` runs as
 > gate: PRs merge with CI red, CI still running, or other reviews outstanding.
 
 Runs until you stop it. Everything is logged with timestamps.
+If listing PRs or reading reactions fails, it logs the failure and retries on
+the next interval.
+
+## Check
+
+```sh
+bash test_cli_target.sh
+```
 
 ## Caveat
 

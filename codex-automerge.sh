@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Watch a repo's open PRs; squash-merge each one Codex has 👍'd on the PR body.
 #
-#   ./codex-automerge.sh [--force|--admin] [interval_seconds]  # repo of the cwd
-#   REPO=owner/name ./codex-automerge.sh [--force|--admin] [interval]  # override
+#   ./codex-automerge.sh [--force|--admin] [-R|--repo <directory|owner/repo>] [interval_seconds]
+#   REPO=owner/name ./codex-automerge.sh [--force|--admin] [interval]
 #
 # --force merges immediately instead of queuing with --auto.
 # --admin does the same and bypasses branch protection (gh pr merge --admin).
@@ -11,22 +11,54 @@
 # reaction on the PR body, not a review or comment.
 set -euo pipefail
 
-REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
-BOT="${BOT:-chatgpt-codex-connector}"
+usage() {
+  echo "usage: $0 [--force|--admin] [-R|--repo <directory|owner/repo>] [interval_seconds]"
+}
+
+repo_target=""
 FORCE=""
 ADMIN=""
 INTERVAL=60
-for arg in "$@"; do
-  case "$arg" in
+interval_set=false
+while (($#)); do
+  case "$1" in
     # ponytail: each mode sets both vars — last flag wins outright, so
     # `--admin --force` downgrades instead of silently keeping --admin.
-    --force) FORCE="--force"; ADMIN="" ;;
-    --admin) FORCE="--admin"; ADMIN="--admin" ;;
+    --force) FORCE="--force"; ADMIN=""; shift ;;
+    --admin) FORCE="--admin"; ADMIN="--admin"; shift ;;
+    -R|--repo)
+      (($# >= 2)) || { usage >&2; exit 2; }
+      [[ -n "$2" ]] || { usage >&2; exit 2; }
+      repo_target="$2"
+      shift 2
+      ;;
+    -h|--help) usage; exit ;;
     # ponytail: one arm rejects both typo'd flags and a non-numeric interval.
-    ''|*[!0-9]*) echo "usage: $0 [--force|--admin] [interval_seconds]" >&2; exit 2 ;;
-    *) INTERVAL="$arg" ;;
+    ''|*[!0-9]*) usage >&2; exit 2 ;;
+    *)
+      [[ "$interval_set" == false ]] || { usage >&2; exit 2; }
+      ((10#$1 > 0)) || { usage >&2; exit 2; }
+      INTERVAL="$1"
+      interval_set=true
+      shift
+      ;;
   esac
 done
+
+if [[ -n "$repo_target" ]]; then
+  if [[ -d "$repo_target" ]]; then
+    repo_url=$(cd "$repo_target" && gh repo view --json url --jq .url)
+  else
+    repo_url=$(gh repo view "$repo_target" --json url --jq .url)
+  fi
+  repo_location=${repo_url#*://}
+  GH_HOST=${repo_location%%/*}
+  export GH_HOST
+  REPO=${repo_location#*/}
+else
+  REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
+fi
+BOT="${BOT:-chatgpt-codex-connector}"
 
 log() { echo "$(date '+%F %T') $*"; }
 
@@ -34,17 +66,22 @@ log "watching $REPO every ${INTERVAL}s for a 👍 from $BOT"
 
 while :; do
   # ponytail: no seen-file — merged PRs drop out of this list on their own.
-  prs=$(gh pr list -R "$REPO" --state open --json number --jq '.[].number')
+  if ! prs=$(gh pr list -R "$REPO" --state open --json number --jq '.[].number'); then
+    log "poll: failed to list open PRs; retrying"
+    sleep "$INTERVAL"
+    continue
+  fi
   log "poll: $(echo "$prs" | grep -c '[0-9]') open PR(s)"
 
   for pr in $prs; do
     # ponytail: per_page=100 over --paginate — --jq runs per page, which would
     # split the joined list across lines and break the case match below.
-    # ponytail: startswith, not == — the API reports the login as
-    # "chatgpt-codex-connector[bot]", so an exact match never fires.
-    reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
+    if ! reactions=$(BOT="$BOT" gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
       -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-      --jq "[.[] | select(.user.login | startswith(\"$BOT\")) | .content] | join(\",\")")
+      --jq '[.[] | select(.user.login == env.BOT or .user.login == (env.BOT + "[bot]")) | .content] | join(",")'); then
+      log "  #$pr: failed to fetch reactions; retrying"
+      continue
+    fi
 
     case ",$reactions," in
       *,+1,*) ;;
