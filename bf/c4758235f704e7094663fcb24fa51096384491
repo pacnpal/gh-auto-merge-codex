@@ -1,0 +1,24 @@
+test_cli_target.sh
+  s_84dfd7c59bc692::t_7e30c09da8b0fc 12,14,18,27,34,54,56
+  s_84dfd7c59bc692::t_5db561dd894b18 55
+  s_84dfd7c59bc692::t_0d12c41ed09995 57
+codex-automerge.sh
+  s_84dfd7c59bc692::t_5db561dd894b18 56
+  s_84dfd7c59bc692::t_7e30c09da8b0fc 50,52,54-55,57,79,81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "bfc4758235f704e7094663fcb24fa51096384491",
+  "prompts": {},
+  "sessions": {
+    "s_84dfd7c59bc692": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a02f55-6798-7571-9ebe-fa32744f6e46",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
