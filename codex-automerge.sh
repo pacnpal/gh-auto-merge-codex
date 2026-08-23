@@ -37,6 +37,7 @@ while (($#)); do
     ''|*[!0-9]*) usage >&2; exit 2 ;;
     *)
       [[ "$interval_set" == false ]] || { usage >&2; exit 2; }
+      ((10#$1 > 0)) || { usage >&2; exit 2; }
       INTERVAL="$1"
       interval_set=true
       shift
@@ -46,7 +47,7 @@ done
 
 if [[ -n "$repo_target" ]]; then
   if [[ -d "$repo_target" ]]; then
-    REPO=$(gh -C "$repo_target" repo view --json nameWithOwner --jq .nameWithOwner)
+    REPO=$(cd "$repo_target" && gh repo view --json nameWithOwner --jq .nameWithOwner)
   else
     REPO=$(gh repo view "$repo_target" --json nameWithOwner --jq .nameWithOwner)
   fi
@@ -61,17 +62,23 @@ log "watching $REPO every ${INTERVAL}s for a 👍 from $BOT"
 
 while :; do
   # ponytail: no seen-file — merged PRs drop out of this list on their own.
-  prs=$(gh pr list -R "$REPO" --state open --json number --jq '.[].number')
+  if ! prs=$(gh pr list -R "$REPO" --state open --json number --jq '.[].number'); then
+    log "poll: failed to list open PRs; retrying"
+    sleep "$INTERVAL"
+    continue
+  fi
   log "poll: $(echo "$prs" | grep -c '[0-9]') open PR(s)"
 
   for pr in $prs; do
     # ponytail: per_page=100 over --paginate — --jq runs per page, which would
     # split the joined list across lines and break the case match below.
-    # ponytail: startswith, not == — the API reports the login as
-    # "chatgpt-codex-connector[bot]", so an exact match never fires.
-    reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
+    if ! reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
       -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-      --jq "[.[] | select(.user.login | startswith(\"$BOT\")) | .content] | join(\",\")")
+      --arg BOT "$BOT" \
+      --jq '[.[] | select(.user.login == $BOT or .user.login == ($BOT + "[bot]")) | .content] | join(",")'); then
+      log "  #$pr: failed to fetch reactions; retrying"
+      continue
+    fi
 
     case ",$reactions," in
       *,+1,*) ;;

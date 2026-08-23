@@ -36,7 +36,7 @@ REPO=owner/name ./codex-automerge.sh
 | `--force` | Merge without requesting auto-merge. This does not bypass branch protection. |
 | `--admin` | Merge with administrator privileges and bypass branch protection. |
 | `-h`, `--help` | Print command usage. |
-| `interval_seconds` | Polling interval in seconds. Defaults to `60`. |
+| `interval_seconds` | Positive polling interval in seconds. Defaults to `60`. |
 
 ### Environment variables
 
@@ -45,9 +45,9 @@ REPO=owner/name ./codex-automerge.sh
 | `REPO` | Current directory's repository | GitHub repository to monitor when `--repo` is not set. |
 | `BOT` | `chatgpt-codex-connector` | GitHub login whose 👍 reaction authorizes a merge. |
 
-`BOT` is a prefix match because the reactions API reports the login with a
-`[bot]` suffix — `chatgpt-codex-connector` matches
-`chatgpt-codex-connector[bot]`.
+`BOT` matches its exact login or that login with GitHub's `[bot]` suffix —
+`chatgpt-codex-connector` matches `chatgpt-codex-connector[bot]`, but not an
+unrelated login with the same prefix.
 
 ## Hivemind
 
@@ -84,7 +84,7 @@ protection outright — required checks, required reviews, merge queue, and all.
 It needs admin rights on the repo.
 
 The two are mutually exclusive; the last one wins (`--admin --force` runs as
-`--force`). Any other flag, or a non-numeric interval, exits with usage.
+`--force`). Any other flag, a non-numeric interval, or `0` exits with usage.
 
 > [!NOTE]
 > On the fallback, `--force`, and `--admin` paths the merge happens
@@ -92,6 +92,8 @@ The two are mutually exclusive; the last one wins (`--admin --force` runs as
 > gate: PRs merge with CI red, CI still running, or other reviews outstanding.
 
 Runs until you stop it. Everything is logged with timestamps.
+If listing PRs or reading reactions fails, it logs the failure and retries on
+the next interval.
 
 ## Check
 
