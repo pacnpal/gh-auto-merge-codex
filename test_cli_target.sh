@@ -9,12 +9,13 @@ mkdir -p "$TMPDIR_TEST/bin" "$TMPDIR_TEST/local-repo"
 cat >"$TMPDIR_TEST/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "repo" && "${2:-}" == "view" && "${PWD##*/}" == "local-repo" ]]; then
-  echo "acme/local-repo"
+  echo "${MOCK_LOCAL_URL:-https://github.com/acme/local-repo}"
 elif [[ "${1:-}" == "repo" && "${2:-}" == "view" && "${3:-}" == "octo/direct-repo" ]]; then
-  echo "octo/direct-repo"
+  echo "https://github.com/octo/direct-repo"
 elif [[ "${1:-}" == "repo" && "${2:-}" == "view" ]]; then
   echo "wrong/current-repo"
 elif [[ "${1:-}" == "pr" && "${2:-}" == "list" ]]; then
+  [[ -z "${GH_HOST_FILE:-}" ]] || printf '%s\n' "${GH_HOST:-}" >"$GH_HOST_FILE"
   [[ -z "${MOCK_PR_LIST_FAIL:-}" ]] || exit 1
   [[ -n "${MOCK_PR:-}" ]] && echo "$MOCK_PR"
 elif [[ "${1:-}" == "api" ]]; then
@@ -23,14 +24,14 @@ elif [[ "${1:-}" == "api" ]]; then
   jq_filter=""
   for ((i = 1; i <= $#; i++)); do
     case "${!i}" in
-      --arg) ((i += 2)); bot="${!i}" ;;
+      --arg) exit 2 ;;
       --jq) ((i += 1)); jq_filter="${!i}" ;;
     esac
   done
   login="${MOCK_REACTION_LOGIN:-chatgpt-codex-connector[bot]}"
   if [[ "$jq_filter" == *startswith* ]]; then
     [[ "$login" == "${BOT:-chatgpt-codex-connector}"* ]] && echo "+1"
-  elif [[ "$jq_filter" == *'== $BOT'* ]] && [[ "$login" == "$bot" || "$login" == "$bot[bot]" ]]; then
+  elif [[ "$jq_filter" == *env.BOT* ]] && [[ "$login" == "$bot" || "$login" == "$bot[bot]" ]]; then
     echo "+1"
   fi
 elif [[ "${1:-}" == "pr" && "${2:-}" == "merge" ]]; then
@@ -49,6 +50,10 @@ run() {
 
 local_output=$(run --repo local-repo 1)
 [[ "$local_output" == *"watching acme/local-repo every 1s"* ]]
+
+ghe_host_file="$TMPDIR_TEST/ghe-host"
+(cd "$TMPDIR_TEST" && env -u REPO -u GH_HOST MOCK_LOCAL_URL=https://github.example/acme/local-repo GH_HOST_FILE="$ghe_host_file" PATH="$TMPDIR_TEST/bin:$PATH" "$ROOT/codex-automerge.sh" --repo local-repo 1 >/dev/null 2>&1) || true
+[[ $(<"$ghe_host_file") == "github.example" ]]
 
 github_output=$(run --repo octo/direct-repo 1)
 [[ "$github_output" == *"watching octo/direct-repo every 1s"* ]]

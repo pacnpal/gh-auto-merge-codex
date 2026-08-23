@@ -47,10 +47,14 @@ done
 
 if [[ -n "$repo_target" ]]; then
   if [[ -d "$repo_target" ]]; then
-    REPO=$(cd "$repo_target" && gh repo view --json nameWithOwner --jq .nameWithOwner)
+    repo_url=$(cd "$repo_target" && gh repo view --json url --jq .url)
   else
-    REPO=$(gh repo view "$repo_target" --json nameWithOwner --jq .nameWithOwner)
+    repo_url=$(gh repo view "$repo_target" --json url --jq .url)
   fi
+  repo_location=${repo_url#*://}
+  GH_HOST=${repo_location%%/*}
+  export GH_HOST
+  REPO=${repo_location#*/}
 else
   REPO="${REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 fi
@@ -72,10 +76,9 @@ while :; do
   for pr in $prs; do
     # ponytail: per_page=100 over --paginate — --jq runs per page, which would
     # split the joined list across lines and break the case match below.
-    if ! reactions=$(gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
+    if ! reactions=$(BOT="$BOT" gh api "repos/$REPO/issues/$pr/reactions?per_page=100" \
       -H "Accept: application/vnd.github.squirrel-girl-preview+json" \
-      --arg BOT "$BOT" \
-      --jq '[.[] | select(.user.login == $BOT or .user.login == ($BOT + "[bot]")) | .content] | join(",")'); then
+      --jq '[.[] | select(.user.login == env.BOT or .user.login == (env.BOT + "[bot]")) | .content] | join(",")'); then
       log "  #$pr: failed to fetch reactions; retrying"
       continue
     fi
