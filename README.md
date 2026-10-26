@@ -1,57 +1,81 @@
 # gh-auto-merge-codex
 
-Watch a GitHub repo's open PRs and squash-merge each one that Codex has 👍'd.
+Watch GitHub repos' open PRs and squash-merge each one Codex has cleared.
 
-Codex (`chatgpt-codex-connector`) signals "reviewed, no findings" with a `+1`
-reaction on the PR body — not a review or a comment — so status checks and
-review APIs never see it. This script polls for that reaction and merges.
+Codex (`chatgpt-codex-connector`) signals "reviewed, no findings" in one of two
+ways, neither of which is a review or a status check:
+
+- a `+1` reaction on the PR body, or
+- its review receipt saying **"Codex Review: Didn't find any major issues"**.
+  This counts only when the receipt's `Reviewed commit:` matches the PR's
+  current head, so a clean review of an older commit can't merge newer pushes.
+  A free-text Codex reply containing the same words doesn't count.
+
+Both must be newer than the PR's current commit. The commit's arrival time is
+the later of its newest check suite and the PR's latest force-push, both
+timestamped by GitHub (git dates can be faked). A 👍 names no commit and stays
+on the PR through pushes. If neither timestamp exists, nothing merges. A check
+suite added after Codex's go-ahead (say, a re-triggered workflow) also voids
+it. Request a new Codex review to get a fresh one.
 
 ## Requirements
 
-`gh` ([GitHub CLI](https://cli.github.com)), authenticated with merge rights on the repo.
+Python 3 with tkinter (the python.org macOS installer includes it), plus
+`gh` ([GitHub CLI](https://cli.github.com)) 2.48 or newer, authenticated with merge rights on the repos.
 
 ## Usage
 
 ```bash
-./codex-automerge.sh [--force|--admin] [-R|--repo <directory|owner/repo>] [interval_seconds]
+./codex_automerge.py [--force|--admin] [--interval N] [--headless] [repo ...]
 ```
 
 ```bash
-./codex-automerge.sh --repo ../checkout  # local checkout; relative paths work
+./codex_automerge.py                                  # open the window, add repos there
+./codex_automerge.py owner/a owner/b ../checkout     # open the window with repos preloaded
+./codex_automerge.py --headless --admin owner/a      # no window; log to stdout
 ```
 
-```bash
-./codex-automerge.sh --repo owner/repo   # monitor a GitHub repository directly
-```
+A `repo` is `owner/repo` or a local checkout directory (GitHub Enterprise hosts
+work too).
 
-```bash
-REPO=owner/name ./codex-automerge.sh
-```
+### Window
+
+- **Add repo / Remove repo**: type `owner/repo` or a path and press Enter. You
+  can monitor any number of repos at once.
+- **Queue (--auto) / Force / Admin**: the merge mode (see Behavior).
+- **every N s**: the polling interval.
+- **Auto-merge**: untick it to watch without merging.
+- **Request Codex review**: posts an `@codex review` comment on each selected PR.
+- **Poll now**: poll immediately.
+
+The tree lists each repo's open PRs and Codex's verdict on each: `👍`,
+`no major issues`, `—` (none yet), or `?` (lookup failed). A newly added repo is
+shown right away. Merging starts on the next poll.
 
 ## Options
 
 | Option | Description |
 | --- | --- |
-| `-R`, `--repo <directory\|owner/repo>` | Monitor a local Git checkout or a GitHub repository reference. This overrides `REPO`. |
+| `repo ...` | Repos to monitor at startup. More can be added in the window. |
 | `--force` | Merge without requesting auto-merge. This does not bypass branch protection. |
 | `--admin` | Merge with administrator privileges and bypass branch protection. |
+| `--interval N` | Positive polling interval in seconds. Defaults to `60`. |
+| `--headless` | Run without a window, logging to stdout. With no `repo`, uses `REPO` or the current directory's repository. |
 | `-h`, `--help` | Print command usage. |
-| `interval_seconds` | Positive polling interval in seconds. Defaults to `60`. |
 
 ### Environment variables
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `REPO` | Current directory's repository | GitHub repository to monitor when `--repo` is not set. |
-| `BOT` | `chatgpt-codex-connector` | GitHub login whose 👍 reaction authorizes a merge. |
+| `REPO` | Current directory's repository | Repo for `--headless` when no `repo` is given. |
+| `BOT_ID` | `199175422` | GitHub user id whose 👍 or clean comment authorizes a merge. |
 
-`BOT` matches its exact login or that login with GitHub's `[bot]` suffix —
-`chatgpt-codex-connector` matches `chatgpt-codex-connector[bot]`, but not an
-unrelated login with the same prefix.
+`199175422` is `chatgpt-codex-connector[bot]`. The tool matches the numeric id,
+not the login, so no other account can pass as Codex.
 
 ## Hivemind
 
-The included `Procfile` is for [Hivemind](https://github.com/darthsim/hivemind), a process manager for Procfile-based applications. Replace `owner/repo` with the repository to monitor, then run:
+The included `Procfile` is for [Hivemind](https://github.com/darthsim/hivemind), a process manager for Procfile-based applications. Replace `owner/repo` with the repositories to monitor (space-separated), then run:
 
 ```sh
 hivemind
@@ -59,11 +83,12 @@ hivemind
 
 ## Behavior
 
-Every interval it lists open PRs, checks each for a `+1` from the bot, and runs
-`gh pr merge --squash --auto`, queuing the merge behind the repo's required
-checks.
+Every interval it lists each repo's open PRs, checks each one for Codex's
+go-ahead, and runs `gh pr merge --squash --auto --match-head-commit <head>`,
+which queues the merge behind the repo's required checks. `--match-head-commit`
+makes GitHub refuse the merge if someone pushed after the poll.
 
-Where auto-merge isn't allowed on the repo, `gh` rejects that, and the script
+Where auto-merge isn't allowed on the repo, `gh` rejects that, and it
 retries the merge without `--auto`. The fallback is gated on that specific
 error, so a conflict or a failing required check still logs `MERGE FAILED`
 rather than merging.
@@ -75,7 +100,7 @@ mergeable.
 
 On a branch with a **merge queue**, `--force` cannot merge now at all: with
 required checks pending, `gh pr merge` enables auto-merge even without `--auto`.
-The script does not claim otherwise — it only logs `merged now` when `gh` says
+The tool does not claim otherwise — it only logs `merged now` when `gh` says
 `Merged pull request`, and logs `not merged` plus `gh`'s own message otherwise.
 Only `--admin` bypasses a merge queue.
 
@@ -88,20 +113,20 @@ The two are mutually exclusive; the last one wins (`--admin --force` runs as
 
 > [!NOTE]
 > On the fallback, `--force`, and `--admin` paths the merge happens
-> **immediately**, not after CI. With `--admin` a 👍 from Codex is the *only*
+> **immediately**, not after CI. With `--admin` Codex's go-ahead is the *only*
 > gate: PRs merge with CI red, CI still running, or other reviews outstanding.
 
 Runs until you stop it. Everything is logged with timestamps.
-If listing PRs or reading reactions fails, it logs the failure and retries on
+If listing PRs or reading Codex's reactions or comments fails, it logs the failure and retries on
 the next interval.
 
 ## Check
 
 ```sh
-bash test_cli_target.sh
+python3 -m unittest test_codex_automerge
 ```
 
 ## Caveat
 
-A 👍 from Codex means Codex found nothing — it says nothing about other
+A 👍 or clean comment from Codex means Codex found nothing — it says nothing about other
 reviewers or human approval. Point this at repos where that is the bar you want.
