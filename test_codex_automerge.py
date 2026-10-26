@@ -1,0 +1,135 @@
+import json
+import pathlib
+import subprocess
+import unittest
+from unittest import mock
+
+import codex_automerge as ca
+
+REPO = "github.com/octo/direct-repo"
+HEAD = "bfd4fae453adcbc45e6cc0a4034898a3002d97ea"
+BOT = "chatgpt-codex-connector[bot]"
+CLEAN = "Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `{}`"
+
+
+class FakeGh:
+    """Stands in for `gh`; records every call."""
+
+    def __init__(self, reactions=(), comments=(), fail=(), merge=(0, "✓ Squashed and merged pull request")):
+        self.calls = []
+        self.reactions, self.comments, self.fail, self.merge = reactions, comments, fail, merge
+
+    def __call__(self, *args, cwd=None):
+        self.calls.append((args, cwd))
+        done = lambda code, out: subprocess.CompletedProcess(args, code, out, "")
+        if any(f in " ".join(args) for f in self.fail):
+            return subprocess.CompletedProcess(args, 1, "", "boom")
+        if args[:2] == ("repo", "view"):
+            return done(0, "https://github.example/acme/local-repo\n" if cwd else f"https://github.com/{args[2]}\n")
+        if args[:2] == ("pr", "list"):
+            return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD}]))
+        if args[0] == "api":
+            return done(0, json.dumps([list(self.reactions if "reactions" in args[-1] else self.comments)]))
+        if args[:2] == ("pr", "merge"):
+            return done(*self.merge)
+        return done(0, "")
+
+    def merges(self):
+        return [args for args, _ in self.calls if args[:2] == ("pr", "merge")]
+
+
+def run(fake, mode=""):
+    logs = []
+    with mock.patch.object(ca, "gh", fake):
+        rows = ca.poll(REPO, mode, logs.append)
+    return rows, "\n".join(logs)
+
+
+class Test(unittest.TestCase):
+    def test_resolve(self):
+        fake = FakeGh()
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.resolve("."), "github.example/acme/local-repo")
+            self.assertEqual(ca.resolve("octo/direct-repo"), REPO)
+
+    def test_thumbs_up_merges_queued_on_head(self):
+        fake = FakeGh(reactions=[{"user": {"login": BOT}, "content": "+1"}])
+        rows, log = run(fake)
+        self.assertEqual(rows[0][1], "👍")
+        merge = fake.merges()[0]
+        self.assertIn("--auto", merge)
+        self.assertEqual(merge[merge.index("--match-head-commit") + 1], HEAD)
+
+    def test_impersonator_does_not_merge(self):
+        fake = FakeGh(reactions=[{"user": {"login": "chatgpt-codex-connector-evil"}, "content": "+1"}],
+                      comments=[{"user": {"login": "someone"}, "body": CLEAN.format(HEAD[:10])}])
+        _, log = run(fake)
+        self.assertIn("#7: no 👍 or clean review yet", log)
+        self.assertEqual(fake.merges(), [])
+
+    def test_clean_comment_on_current_head_merges(self):
+        for body in (CLEAN.format(HEAD[:10]), CLEAN.replace("'", "’").format(HEAD[:7])):
+            fake = FakeGh(comments=[{"user": {"login": BOT}, "body": body}])
+            rows, _ = run(fake)
+            self.assertEqual(rows[0][1], "no major issues")
+            self.assertEqual(len(fake.merges()), 1)
+
+    def test_clean_comment_on_stale_head_does_not_merge(self):
+        fake = FakeGh(comments=[{"user": {"login": BOT}, "body": CLEAN.format("0123456789")}])
+        rows, _ = run(fake)
+        self.assertIsNone(rows[0][1])
+        self.assertEqual(fake.merges(), [])
+
+    def test_modes(self):
+        thumbs = [{"user": {"login": BOT}, "content": "+1"}]
+        admin, force = FakeGh(reactions=thumbs), FakeGh(reactions=thumbs)
+        run(admin, "admin")
+        run(force, "force")
+        self.assertIn("--admin", admin.merges()[0])
+        self.assertNotIn("--auto", admin.merges()[0])
+        self.assertNotIn("--admin", force.merges()[0])
+        self.assertNotIn("--auto", force.merges()[0])
+
+    def test_auto_fallback_only_on_auto_merge_error(self):
+        thumbs = [{"user": {"login": BOT}, "content": "+1"}]
+        fake = FakeGh(reactions=thumbs, merge=(1, "auto merge is not allowed for this repository"))
+        _, log = run(fake)
+        self.assertEqual(len(fake.merges()), 2)
+        self.assertNotIn("--auto", fake.merges()[1])
+        fake = FakeGh(reactions=thumbs, merge=(1, "merge conflict"))
+        _, log = run(fake)
+        self.assertEqual(len(fake.merges()), 1)
+        self.assertIn("MERGE FAILED: merge conflict", log)
+
+    def test_not_merged_unless_gh_says_so(self):
+        fake = FakeGh(reactions=[{"user": {"login": BOT}, "content": "+1"}], merge=(0, "enabled auto-merge"))
+        _, log = run(fake, "force")
+        self.assertIn("not merged — enabled auto-merge", log)
+
+    def test_failures_are_logged_and_retried(self):
+        rows, log = run(FakeGh(fail=["pr list"]))
+        self.assertIsNone(rows)
+        self.assertIn("failed to list open PRs; retrying", log)
+        _, log = run(FakeGh(fail=["api"]))
+        self.assertIn("#7: failed to fetch Codex reactions/comments; retrying", log)
+
+    def test_request_review_posts_comment(self):
+        fake = FakeGh()
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.request_review(REPO, "7"), "asked Codex for a review")
+        self.assertEqual(fake.calls[0][0], ("pr", "comment", "7", "-R", REPO, "--body", "@codex review"))
+
+    def test_args(self):
+        self.assertEqual(ca.parse(["--admin", "--force", "a/b"]).mode, "force")
+        self.assertEqual(ca.parse(["--interval", "5", "a/b", "c/d"]).repos, ["a/b", "c/d"])
+        for bad in (["--interval", "0"], ["--interval", "x"], ["--unknown"]):
+            with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
+                ca.parse(bad)
+
+    def test_procfile(self):
+        procfile = pathlib.Path(__file__).with_name("Procfile").read_text()
+        self.assertIn("codex-automerge: ./codex_automerge.py --headless --admin owner/repo", procfile)
+
+
+if __name__ == "__main__":
+    unittest.main()
