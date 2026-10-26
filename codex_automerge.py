@@ -25,6 +25,8 @@ BOT_ID = int(os.environ.get("BOT_ID", "199175422"))
 # Only Codex's review receipt, from its first byte: a free-text Codex reply can't start with this.
 CLEAN = re.compile(r"\s*<!-- codex-review-receipt:v1 -->\s*Codex Review: Didn.t find any major issues")  # . matches ' and ’
 REVIEWED = re.compile(r"Reviewed commit:\W*([0-9a-f]{10,40})")
+# Hidden in the conflict comment so each head commit gets one, across restarts too.
+CONFLICT = "<!-- codex-automerge:conflict {} -->"
 MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
 # The window's repos and controls, restored at launch.
 CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "codex-automerge.json")
@@ -126,15 +128,35 @@ def request_review(repo, number):
     return "asked Codex for a review" if not r.returncode else f"review request FAILED: {output(r)}"
 
 
+def flag_conflict(repo, pr):
+    """Comment once per head commit that the PR has merge conflicts."""
+    host, nwo = repo.split("/", 1)
+    marker = CONFLICT.format(pr["headRefOid"])
+    try:
+        me = gh_json("api", "--hostname", host, "user")["id"]
+        comments = api(host, f"repos/{nwo}/issues/{pr['number']}/comments?per_page=100")
+    except (RuntimeError, ValueError) as e:
+        return f"merge conflict; failed to fetch comments, retrying ({e})"
+    # Only our own comment counts: anyone else posting the marker would silence the notice.
+    if any((c.get("user") or {}).get("id") == me and marker in (c.get("body") or "") for c in comments):
+        return "merge conflict; already commented"
+    # No @codex here: that would ask Codex for a review.
+    r = gh("pr", "comment", str(pr["number"]), "-R", repo, "--body",
+           f"This pull request has merge conflicts with `{pr['baseRefName']}`. "
+           f"Resolve them so it can be merged.\n\n{marker}")
+    return "merge conflict; commented on the PR" if not r.returncode else f"merge conflict; comment FAILED: {output(r)}"
+
+
 def poll(repo, log, merge_mode):
     """One pass over repo's open PRs. Returns [(pr, verdict)], or None if listing failed.
 
     merge_mode() is asked right before each merge: the mode to merge with, or None to skip.
+    Conflicting PRs are commented on either way.
     """
     try:
         # shortcut: PRs past the 1000th open one are never seen; page through the API if a repo gets there.
         prs = gh_json("pr", "list", "-R", repo, "--state", "open", "--limit", "1000",
-                      "--json", "number,title,headRefOid")
+                      "--json", "number,title,headRefOid,mergeable,baseRefName")
     except (RuntimeError, ValueError) as e:
         log(f"{repo}: failed to list open PRs; retrying ({e})")
         return None
@@ -142,6 +164,11 @@ def poll(repo, log, merge_mode):
     rows = []
     for pr in prs:
         tag = f"  {repo}#{pr['number']}"
+        # UNKNOWN (GitHub still computing it) falls through; the next poll sees the answer.
+        if pr.get("mergeable") == "CONFLICTING":  # a merge would fail; say so on the PR instead
+            rows.append((pr, "merge conflict"))
+            log(f"{tag}: {flag_conflict(repo, pr)}")
+            continue
         try:
             v = verdict(repo, pr)
         except (RuntimeError, ValueError) as e:

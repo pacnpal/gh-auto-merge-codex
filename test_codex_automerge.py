@@ -10,6 +10,7 @@ import codex_automerge as ca
 REPO = "github.com/octo/direct-repo"
 HEAD = "bfd4fae453adcbc45e6cc0a4034898a3002d97ea"
 BOT = {"login": "chatgpt-codex-connector[bot]", "id": 199175422}
+ME = {"login": "watcher", "id": 42}  # the account gh is logged in as
 CLEAN = "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `{}`"
 PUSHED, AFTER, BEFORE = "2026-10-26T11:17:58Z", "2026-10-26T11:27:33Z", "2026-10-26T11:00:00Z"
 THUMBS = [{"user": BOT, "content": "+1", "created_at": AFTER}]
@@ -23,10 +24,10 @@ class FakeGh:
     """Stands in for `gh`; records every call."""
 
     def __init__(self, reactions=(), comments=(), fail=(), merge=(0, "✓ Squashed and merged pull request"),
-                 suites=(PUSHED,), timeline=()):
+                 suites=(PUSHED,), timeline=(), mergeable="MERGEABLE"):
         self.calls = []
         self.reactions, self.comments, self.fail, self.merge = reactions, comments, fail, merge
-        self.suites, self.timeline = suites, timeline
+        self.suites, self.timeline, self.mergeable = suites, timeline, mergeable
 
     def __call__(self, *args, cwd=None):
         self.calls.append((args, cwd))
@@ -36,7 +37,10 @@ class FakeGh:
         if args[:2] == ("repo", "view"):
             return done(0, "https://github.example/acme/local-repo\n" if cwd else f"https://github.com/{args[2]}\n")
         if args[:2] == ("pr", "list"):
-            return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD}]))
+            return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD,
+                                        "mergeable": self.mergeable, "baseRefName": "main"}]))
+        if args[:2] == ("api", "--hostname") and args[-1] == "user":
+            return done(0, json.dumps(ME))
         if args[0] == "api" and "check-suites" in args[-1]:
             return done(0, json.dumps([{"check_suites": [{"created_at": t} for t in self.suites]}]))
         if args[0] == "api" and "timeline" in args[-1]:
@@ -49,6 +53,9 @@ class FakeGh:
 
     def merges(self):
         return [args for args, _ in self.calls if args[:2] == ("pr", "merge")]
+
+    def comments_posted(self):
+        return [args[-1] for args, _ in self.calls if args[:2] == ("pr", "comment")]
 
 
 def run(fake, mode=""):
@@ -129,6 +136,39 @@ class Test(unittest.TestCase):
         for c in (receipt(body=reply), receipt(HEAD[:7])):  # free-text reply; hash too short
             rows, _ = run(FakeGh(comments=[c]))
             self.assertIsNone(rows[0][1])
+
+    def test_conflict_is_commented_once_per_head_and_not_merged(self):
+        fake = FakeGh(reactions=THUMBS, mergeable="CONFLICTING")
+        rows, log = run(fake)
+        self.assertEqual(rows[0][1], "merge conflict")
+        self.assertEqual(fake.merges(), [])
+        [body] = fake.comments_posted()
+        self.assertIn("merge conflicts with `main`", body)
+        self.assertIn(ca.CONFLICT.format(HEAD), body)
+        self.assertNotIn("@codex", body)
+        self.assertIn("#7: merge conflict; commented on the PR", log)
+        # Already flagged for this head (e.g. before a restart): no second comment.
+        fake = FakeGh(mergeable="CONFLICTING", comments=[{"user": ME, "body": body}])
+        _, log = run(fake)
+        self.assertEqual(fake.comments_posted(), [])
+        self.assertIn("#7: merge conflict; already commented", log)
+        # Someone else planting the marker doesn't silence the notice.
+        fake = FakeGh(mergeable="CONFLICTING", comments=[{"user": BOT, "body": body}])
+        run(fake)
+        self.assertEqual(len(fake.comments_posted()), 1)
+
+    def test_conflict_commented_even_when_not_merging(self):
+        fake = FakeGh(mergeable="CONFLICTING")
+        with mock.patch.object(ca, "gh", fake):
+            rows = ca.poll(REPO, lambda _: None, lambda: None)
+        self.assertEqual(rows[0][1], "merge conflict")
+        self.assertEqual(len(fake.comments_posted()), 1)
+
+    def test_unknown_mergeability_takes_the_normal_path(self):
+        fake = FakeGh(reactions=THUMBS, mergeable="UNKNOWN")
+        rows, _ = run(fake)
+        self.assertEqual(rows[0][1], "👍")
+        self.assertEqual((len(fake.merges()), fake.comments_posted()), (1, []))
 
     def test_modes(self):
         thumbs = THUMBS
