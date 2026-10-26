@@ -1,6 +1,7 @@
 import json
 import pathlib
 import subprocess
+import tempfile
 import unittest
 from unittest import mock
 
@@ -175,10 +176,29 @@ class Test(unittest.TestCase):
 
     def test_args(self):
         self.assertEqual(ca.parse(["--admin", "--force", "a/b"]).mode, "force")
+        self.assertEqual((ca.parse([]).mode, ca.parse([]).interval), (None, None))  # saved settings apply
         self.assertEqual(ca.parse(["--interval", "5", "a/b", "c/d"]).repos, ["a/b", "c/d"])
         for bad in (["--interval", "0"], ["--interval", "x"], ["--unknown"]):
             with self.assertRaises(SystemExit), mock.patch("sys.stderr"):
                 ca.parse(bad)
+
+    def test_settings_round_trip(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/sub/s.json"):
+            self.assertEqual(ca.load_settings(), {"repos": [], "mode": "", "interval": 60,
+                                                  "merging": True, "geometry": None})
+            saved = {"repos": [REPO], "mode": "admin", "interval": 5, "merging": False, "geometry": "800x600+0+0"}
+            ca.save_settings(saved)
+            self.assertEqual(ca.load_settings(), saved)
+
+    def test_bad_settings_are_not_trusted_or_overwritten(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            pathlib.Path(ca.CONFIG).write_text('{"mode": "foo", "interval": 0, "repos": [1, "a/b"], "merging": "no"}')
+            s = ca.load_settings()
+            self.assertEqual((s["mode"], s["interval"], s["repos"]), ("", 60, ["a/b"]))  # "foo" would force-merge
+            pathlib.Path(ca.CONFIG).write_text("{oops")
+            with self.assertRaises(SystemExit):
+                ca.load_settings()
+            self.assertEqual(pathlib.Path(ca.CONFIG).read_text(), "{oops")
 
     def test_procfile(self):
         procfile = pathlib.Path(__file__).with_name("Procfile").read_text()

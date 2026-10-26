@@ -52,6 +52,14 @@ The tree lists each repo's open PRs and Codex's verdict on each: `👍`,
 `no major issues`, `—` (none yet), or `?` (lookup failed). A newly added repo is
 shown right away. Merging starts on the next poll.
 
+The window saves its repo list, merge mode, interval, Auto-merge setting, and
+size to `$XDG_CONFIG_HOME/codex-automerge.json` (default
+`~/.config/codex-automerge.json`) whenever one changes and when you close it,
+and restores them at the next launch. `repo` arguments are added to the saved
+list. `--force`, `--admin`, and `--interval` override the saved values. If the
+file can't be parsed, the tool exits instead of overwriting it. `--headless`
+neither reads nor writes this file.
+
 ## Options
 
 | Option | Description |
@@ -59,7 +67,7 @@ shown right away. Merging starts on the next poll.
 | `repo ...` | Repos to monitor at startup. More can be added in the window. |
 | `--force` | Merge without requesting auto-merge. This does not bypass branch protection. |
 | `--admin` | Merge with administrator privileges and bypass branch protection. |
-| `--interval N` | Positive polling interval in seconds. Defaults to `60`. |
+| `--interval N` | Positive polling interval in seconds. Defaults to `60`, or to the saved interval in the window. |
 | `--headless` | Run without a window, logging to stdout. With no `repo`, uses `REPO` or the current directory's repository. |
 | `-h`, `--help` | Print command usage. |
 
@@ -68,6 +76,7 @@ shown right away. Merging starts on the next poll.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `REPO` | Current directory's repository | Repo for `--headless` when no `repo` is given. |
+| `XDG_CONFIG_HOME` | `~/.config` | Directory holding the window's saved settings. |
 | `BOT_ID` | `199175422` | GitHub user id whose 👍 or clean comment authorizes a merge. |
 
 `199175422` is `chatgpt-codex-connector[bot]`. The tool matches the numeric id,

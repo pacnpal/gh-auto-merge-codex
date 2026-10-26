@@ -26,6 +26,8 @@ BOT_ID = int(os.environ.get("BOT_ID", "199175422"))
 CLEAN = re.compile(r"\s*<!-- codex-review-receipt:v1 -->\s*Codex Review: Didn.t find any major issues")  # . matches ' and ’
 REVIEWED = re.compile(r"Reviewed commit:\W*([0-9a-f]{10,40})")
 MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
+# The window's repos and controls, restored at launch.
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "codex-automerge.json")
 
 
 def gh(*args, cwd=None):
@@ -155,6 +157,35 @@ def poll(repo, log, merge_mode):
     return rows
 
 
+def load_settings():
+    """Saved window settings, each checked: a bad mode would otherwise merge() as force."""
+    try:
+        with open(CONFIG) as f:
+            s = json.load(f)
+        if not isinstance(s, dict):
+            raise ValueError("not a JSON object")
+    except FileNotFoundError:
+        s = {}
+    except (OSError, ValueError) as e:  # exit rather than let the next save overwrite it
+        sys.exit(f"can't read saved settings {CONFIG}: {e}; fix or delete it")
+    repos, interval, geometry = s.get("repos"), s.get("interval"), s.get("geometry")
+    return {
+        "repos": [r for r in repos if isinstance(r, str)] if isinstance(repos, list) else [],
+        "mode": s.get("mode") if s.get("mode") in [v for _, v in MODES] else "",
+        "interval": interval if type(interval) is int and interval > 0 else 60,
+        "merging": s.get("merging") is not False,
+        "geometry": geometry if isinstance(geometry, str) else None,
+    }
+
+
+def save_settings(settings):
+    os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
+    tmp = f"{CONFIG}.tmp"
+    with open(tmp, "w") as f:
+        json.dump(settings, f, indent=2)
+    os.replace(tmp, CONFIG)  # a crash mid-write leaves the old file whole
+
+
 def stamp(msg):
     return f"{time.strftime('%F %T')} {msg}"
 
@@ -172,17 +203,22 @@ def gui(targets, mode, interval):
     import tkinter as tk
     from tkinter import ttk
 
+    saved = load_settings()
+    mode = saved["mode"] if mode is None else mode  # a CLI flag wins for this run
+    interval = interval or saved["interval"]
     root = tk.Tk()
     root.title("Codex automerge")
+    if saved["geometry"]:
+        root.geometry(saved["geometry"])
     events = queue.Queue()  # worker threads never touch tk; they post here
     repos = []
     busy = False
     mode_var = tk.StringVar(value=mode)
     interval_var = tk.IntVar(value=interval)
-    merging = tk.BooleanVar(value=True)
+    merging = tk.BooleanVar(value=saved["merging"])
     # Mirrors the controls for worker threads, which can't read tk vars. Read at each merge,
     # so removing a repo or unticking Auto-merge stops a poll that's already running.
-    live = {"mode": mode, "merging": True}
+    live = {"mode": mode, "merging": saved["merging"]}
 
     def log(msg):
         events.put(("log", stamp(msg)))
@@ -190,11 +226,29 @@ def gui(targets, mode, interval):
     def bg(fn, *args):
         threading.Thread(target=fn, args=args, daemon=True).start()
 
+    def save():
+        try:
+            seconds = max(1, interval_var.get())
+        except tk.TclError:
+            seconds = interval
+        try:
+            save_settings({"repos": repos, "mode": mode_var.get(), "interval": seconds,
+                           "merging": merging.get(), "geometry": root.geometry()})
+        except OSError as e:
+            log(f"can't save settings to {CONFIG}: {e}")
+
+    def control(**change):
+        live.update(change)
+        save()
+
     def add_repo(target):
         try:
             repo = resolve(target)
         except Exception as e:
             return log(f"can't add {target}: {e!r}")
+        show(repo)
+
+    def show(repo):
         events.put(("repo", repo))
         try:
             events.put(("prs", repo, poll(repo, log, lambda: None)))  # show it now; merge on the next tick
@@ -212,6 +266,7 @@ def gui(targets, mode, interval):
             if iid in repos:
                 repos.remove(iid)
                 tree.delete(iid)
+        save()
 
     def ask_codex():
         for iid in tree.selection():
@@ -256,6 +311,7 @@ def gui(targets, mode, interval):
             elif kind == "repo" and rest[0] not in repos:
                 repos.append(rest[0])
                 tree.insert("", "end", iid=rest[0], text=rest[0], open=True)
+                save()
             elif kind == "prs" and rest[1] is not None and tree.exists(rest[0]):
                 repo, rows = rest
                 selected = tree.selection()
@@ -278,12 +334,12 @@ def gui(targets, mode, interval):
     ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
     for label, value in MODES:
         ttk.Radiobutton(bar, text=label, variable=mode_var, value=value,
-                        command=lambda: live.update(mode=mode_var.get())).pack(side="left")
+                        command=lambda: control(mode=mode_var.get())).pack(side="left")
     ttk.Label(bar, text="  every").pack(side="left")
     ttk.Spinbox(bar, from_=1, to=86400, width=6, textvariable=interval_var).pack(side="left")
     ttk.Label(bar, text="s").pack(side="left")
     ttk.Checkbutton(bar, text="Auto-merge", variable=merging,
-                    command=lambda: live.update(merging=merging.get())).pack(side="left", padx=6)
+                    command=lambda: control(merging=merging.get())).pack(side="left", padx=6)
 
     tree = ttk.Treeview(root, columns=("codex",), height=12)
     tree.heading("#0", text="Repo / pull request", anchor="w")
@@ -300,8 +356,15 @@ def gui(targets, mode, interval):
     logbox = tk.Text(root, height=12, state="disabled", wrap="word")
     logbox.pack(fill="both", expand=True, padx=6, pady=(0, 6))
 
+    def close():
+        save()
+        root.destroy()
+
+    for repo in saved["repos"]:
+        bg(show, repo)  # already resolved; re-resolving offline would drop it from the next save
     for target in targets:
         bg(add_repo, target)
+    root.protocol("WM_DELETE_WINDOW", close)
     drain()
     root.after(interval * 1000, tick)
     root.mainloop()
@@ -317,11 +380,12 @@ def parse(argv=None):
     p = argparse.ArgumentParser(description="Squash-merge PRs Codex has cleared.")
     p.add_argument("repos", nargs="*", metavar="repo", help="owner/repo or a local checkout")
     # Both write mode, so the last flag wins: `--admin --force` runs as --force.
-    p.add_argument("--force", dest="mode", action="store_const", const="force", default="",
+    # None means "not given", so the window falls back to its saved settings.
+    p.add_argument("--force", dest="mode", action="store_const", const="force", default=None,
                    help="merge now instead of queuing with --auto")
     p.add_argument("--admin", dest="mode", action="store_const", const="admin",
                    help="merge now and bypass branch protection")
-    p.add_argument("--interval", type=positive, default=60, help="seconds between polls (default 60)")
+    p.add_argument("--interval", type=positive, help="seconds between polls (default 60)")
     p.add_argument("--headless", action="store_true",
                    help="no window; log to stdout (default repo: $REPO or the current directory)")
     return p.parse_args(argv)
@@ -335,7 +399,7 @@ def main(argv=None):
         repos = [resolve(t) for t in a.repos or [os.environ.get("REPO", ".")]]
     except RuntimeError as e:
         sys.exit(f"can't resolve repo: {e}")
-    watch(repos, a.mode, a.interval)
+    watch(repos, a.mode or "", a.interval or 60)
 
 
 if __name__ == "__main__":
