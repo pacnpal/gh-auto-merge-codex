@@ -133,10 +133,12 @@ def flag_conflict(repo, pr):
     host, nwo = repo.split("/", 1)
     marker = CONFLICT.format(pr["headRefOid"])
     try:
+        me = gh_json("api", "--hostname", host, "user")["id"]
         comments = api(host, f"repos/{nwo}/issues/{pr['number']}/comments?per_page=100")
     except (RuntimeError, ValueError) as e:
         return f"merge conflict; failed to fetch comments, retrying ({e})"
-    if any(marker in (c.get("body") or "") for c in comments):
+    # Only our own comment counts: anyone else posting the marker would silence the notice.
+    if any((c.get("user") or {}).get("id") == me and marker in (c.get("body") or "") for c in comments):
         return "merge conflict; already commented"
     # No @codex here: that would ask Codex for a review.
     r = gh("pr", "comment", str(pr["number"]), "-R", repo, "--body",

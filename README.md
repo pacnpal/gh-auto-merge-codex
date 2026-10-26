@@ -100,7 +100,8 @@ makes GitHub refuse the merge if someone pushed after the poll.
 A PR GitHub reports as conflicting with its base isn't checked or merged.
 Instead the tool comments on it once per head commit, even with merging off, saying it has merge
 conflicts with the base branch. A hidden marker in that comment keeps it from
-commenting again, including after a restart. GitHub works out whether a PR
+commenting again, including after a restart. Only the marker in a comment
+from the account `gh` is logged in as counts. GitHub works out whether a PR
 conflicts in the background, so a fresh push can take one more poll to be
 flagged.
 
