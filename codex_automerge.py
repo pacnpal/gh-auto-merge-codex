@@ -31,14 +31,14 @@ CONFLICT = "<!-- codex-automerge:conflict {} -->"
 MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
 # The window's repos and controls, restored at launch.
 CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "codex-automerge.json")
-# A full path plus close_fds=False lets subprocess use posix_spawn instead of fork: macOS libmalloc
+# A full path, no cwd and close_fds=False let subprocess use posix_spawn instead of fork: macOS libmalloc
 # prints "MallocStackLogging: can't turn off..." in every forked child of the Tk process.
-GH = shutil.which("gh") or "gh"
+GH = os.path.abspath(found) if (found := shutil.which("gh")) else "gh"  # absolute: a relative PATH hit breaks under cwd
 
 
 def gh(*args, cwd=None):
     try:
-        return subprocess.run([GH, *args], cwd=cwd, capture_output=True, text=True, timeout=120, close_fds=False)
+        return subprocess.run([GH, *args], cwd=cwd, capture_output=True, text=True, timeout=120, close_fds=cwd is not None)
     except subprocess.TimeoutExpired:  # a hung gh would stall every repo; fail like any gh error
         return subprocess.CompletedProcess(args, 1, "", "gh timed out after 120s")
 
