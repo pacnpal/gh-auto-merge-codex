@@ -180,7 +180,7 @@ def load_settings():
 
 def save_settings(settings):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
-    tmp = f"{CONFIG}.tmp"
+    tmp = f"{CONFIG}.{os.getpid()}.tmp"  # per process: two open windows mustn't share one tmp file
     with open(tmp, "w") as f:
         json.dump(settings, f, indent=2)
     os.replace(tmp, CONFIG)  # a crash mid-write leaves the old file whole
