@@ -1,0 +1,28 @@
+README.md
+  s_3039cfe6bb97c4::t_0744d7df044db6 47,101
+  s_3039cfe6bb97c4::t_67aade9fe14a81 52,100,102-105
+  s_3039cfe6bb97c4::t_aa9a96622938ba 106
+test_codex_automerge.py
+  s_3039cfe6bb97c4::t_59cf1ef9492623 26,29,39-40,54-56,137-152,154-157,159-164
+  s_3039cfe6bb97c4::t_0744d7df044db6 153,158
+  s_3039cfe6bb97c4::t_d20c478aab7126 165
+codex_automerge.py
+  s_3039cfe6bb97c4::t_0744d7df044db6 152,168
+  s_3039cfe6bb97c4::t_e9e7addddc8f0d 28-29,131-147,157,165-167,169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65980c46f202a0ed090a32d7986d8a83640506ac",
+  "prompts": {},
+  "sessions": {
+    "s_3039cfe6bb97c4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2120b777-c568-48d0-bb1f-6e783a2a8dbd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
