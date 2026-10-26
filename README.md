@@ -68,11 +68,10 @@ shown right away. Merging starts on the next poll.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `REPO` | Current directory's repository | Repo for `--headless` when no `repo` is given. |
-| `BOT` | `chatgpt-codex-connector` | GitHub login whose 👍 or clean comment authorizes a merge. |
+| `BOT_ID` | `199175422` | GitHub user id whose 👍 or clean comment authorizes a merge. |
 
-`BOT` matches its exact login or that login with GitHub's `[bot]` suffix:
-`chatgpt-codex-connector` matches `chatgpt-codex-connector[bot]`, but not an
-unrelated login with the same prefix.
+`199175422` is `chatgpt-codex-connector[bot]`. The tool matches the numeric id,
+not the login, so no other account can pass as Codex.
 
 ## Hivemind
 

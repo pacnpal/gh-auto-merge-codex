@@ -8,14 +8,14 @@ import codex_automerge as ca
 
 REPO = "github.com/octo/direct-repo"
 HEAD = "bfd4fae453adcbc45e6cc0a4034898a3002d97ea"
-BOT = "chatgpt-codex-connector[bot]"
+BOT = {"login": "chatgpt-codex-connector[bot]", "id": 199175422}
 CLEAN = "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `{}`"
 PUSHED, AFTER, BEFORE = "2026-10-26T11:17:58Z", "2026-10-26T11:27:33Z", "2026-10-26T11:00:00Z"
-THUMBS = [{"user": {"login": BOT}, "content": "+1", "created_at": AFTER}]
+THUMBS = [{"user": BOT, "content": "+1", "created_at": AFTER}]
 
 
 def receipt(sha=HEAD[:10], at=AFTER, body=CLEAN):
-    return {"user": {"login": BOT}, "body": body.format(sha), "created_at": at}
+    return {"user": BOT, "body": body.format(sha), "created_at": at}
 
 
 class FakeGh:
@@ -53,7 +53,7 @@ class FakeGh:
 def run(fake, mode=""):
     logs = []
     with mock.patch.object(ca, "gh", fake):
-        rows = ca.poll(REPO, mode, logs.append)
+        rows = ca.poll(REPO, logs.append, lambda: mode)
     return rows, "\n".join(logs)
 
 
@@ -72,9 +72,18 @@ class Test(unittest.TestCase):
         self.assertIn("--auto", merge)
         self.assertEqual(merge[merge.index("--match-head-commit") + 1], HEAD)
 
+    def test_merge_mode_is_asked_at_merge_time(self):
+        # GUI: repo removed or Auto-merge unticked while this poll was running.
+        fake = FakeGh(reactions=THUMBS)
+        with mock.patch.object(ca, "gh", fake):
+            rows = ca.poll(REPO, lambda _: None, lambda: None)
+        self.assertEqual(rows[0][1], "👍")
+        self.assertEqual(fake.merges(), [])
+
     def test_impersonator_does_not_merge(self):
-        fake = FakeGh(reactions=[dict(THUMBS[0], user={"login": "chatgpt-codex-connector-evil"})],
-                      comments=[dict(receipt(), user={"login": "someone"})])
+        # Codex's login on another account: only the id counts.
+        fake = FakeGh(reactions=[dict(THUMBS[0], user=dict(BOT, id=1))],
+                      comments=[dict(receipt(), user=dict(BOT, id=1))])
         _, log = run(fake)
         self.assertIn("#7: no 👍 or clean review yet", log)
         self.assertEqual(fake.merges(), [])

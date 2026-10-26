@@ -20,7 +20,8 @@ import sys
 import threading
 import time
 
-BOT = os.environ.get("BOT", "chatgpt-codex-connector")
+# chatgpt-codex-connector[bot]. Its numeric id, not its login: an id can't be renamed or reused.
+BOT_ID = int(os.environ.get("BOT_ID", "199175422"))
 # Only Codex's review receipt, from its first byte: a free-text Codex reply can't start with this.
 CLEAN = re.compile(r"\s*<!-- codex-review-receipt:v1 -->\s*Codex Review: Didn.t find any major issues")  # . matches ' and ’
 REVIEWED = re.compile(r"Reviewed commit:\W*([0-9a-f]{10,40})")
@@ -62,7 +63,7 @@ def resolve(target):
 
 
 def is_bot(item):
-    return (item.get("user") or {}).get("login") in (BOT, BOT + "[bot]")
+    return (item.get("user") or {}).get("id") == BOT_ID
 
 
 def pushed_at(host, nwo, pr):
@@ -123,8 +124,11 @@ def request_review(repo, number):
     return "asked Codex for a review" if not r.returncode else f"review request FAILED: {output(r)}"
 
 
-def poll(repo, mode, log, merging=True):
-    """One pass over repo's open PRs. Returns [(pr, verdict)], or None if listing failed."""
+def poll(repo, log, merge_mode):
+    """One pass over repo's open PRs. Returns [(pr, verdict)], or None if listing failed.
+
+    merge_mode() is asked right before each merge: the mode to merge with, or None to skip.
+    """
     try:
         # shortcut: PRs past the 1000th open one are never seen; page through the API if a repo gets there.
         prs = gh_json("pr", "list", "-R", repo, "--state", "open", "--limit", "1000",
@@ -145,7 +149,7 @@ def poll(repo, mode, log, merging=True):
         rows.append((pr, v))
         if not v:
             log(f"{tag}: no 👍 or clean review yet")
-        elif merging:
+        elif (mode := merge_mode()) is not None:
             log(f"{tag}: {v} — squash merging")
             log(f"{tag}: {merge(repo, pr, mode)}")
     return rows
@@ -157,10 +161,10 @@ def stamp(msg):
 
 def watch(repos, mode, interval):
     log = lambda msg: print(stamp(msg), flush=True)
-    log(f"watching {', '.join(repos)} every {interval}s for a go-ahead from {BOT}")
+    log(f"watching {', '.join(repos)} every {interval}s for a go-ahead from bot id {BOT_ID}")
     while True:
         for repo in repos:
-            poll(repo, mode, log)
+            poll(repo, log, lambda: mode)
         time.sleep(interval)
 
 
@@ -176,6 +180,9 @@ def gui(targets, mode, interval):
     mode_var = tk.StringVar(value=mode)
     interval_var = tk.IntVar(value=interval)
     merging = tk.BooleanVar(value=True)
+    # Mirrors the controls for worker threads, which can't read tk vars. Read at each merge,
+    # so removing a repo or unticking Auto-merge stops a poll that's already running.
+    live = {"mode": mode, "merging": True}
 
     def log(msg):
         events.put(("log", stamp(msg)))
@@ -190,7 +197,7 @@ def gui(targets, mode, interval):
             return log(f"can't add {target}: {e!r}")
         events.put(("repo", repo))
         try:
-            events.put(("prs", repo, poll(repo, "", log, merging=False)))  # show it now; merge on the next tick
+            events.put(("prs", repo, poll(repo, log, lambda: None)))  # show it now; merge on the next tick
         except Exception as e:
             log(f"{repo}: poll crashed; retrying next interval ({e!r})")
 
@@ -212,10 +219,10 @@ def gui(targets, mode, interval):
                 repo, number = iid.rsplit("#", 1)
                 bg(lambda repo=repo, number=number: log(f"{repo}#{number}: {request_review(repo, number)}"))
 
-    def poll_all(snapshot, mode, merge_on):
+    def poll_all(snapshot):
         try:
             for repo in snapshot:
-                events.put(("prs", repo, poll(repo, mode, log, merge_on)))
+                events.put(("prs", repo, poll(repo, log, lambda repo=repo: live["mode"] if live["merging"] and repo in repos else None)))
         except Exception as e:  # e.g. gh missing; log it rather than kill the thread silently
             log(f"poll crashed; retrying next interval ({e!r})")
         finally:
@@ -225,7 +232,7 @@ def gui(targets, mode, interval):
         nonlocal busy
         if repos and not busy:
             busy = True
-            bg(poll_all, list(repos), mode_var.get(), merging.get())
+            bg(poll_all, list(repos))
 
     def tick():
         poll_now()
@@ -270,11 +277,13 @@ def gui(targets, mode, interval):
     ttk.Button(bar, text="Remove repo", command=remove).pack(side="left")
     ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
     for label, value in MODES:
-        ttk.Radiobutton(bar, text=label, variable=mode_var, value=value).pack(side="left")
+        ttk.Radiobutton(bar, text=label, variable=mode_var, value=value,
+                        command=lambda: live.update(mode=mode_var.get())).pack(side="left")
     ttk.Label(bar, text="  every").pack(side="left")
     ttk.Spinbox(bar, from_=1, to=86400, width=6, textvariable=interval_var).pack(side="left")
     ttk.Label(bar, text="s").pack(side="left")
-    ttk.Checkbutton(bar, text="Auto-merge", variable=merging).pack(side="left", padx=6)
+    ttk.Checkbutton(bar, text="Auto-merge", variable=merging,
+                    command=lambda: live.update(merging=merging.get())).pack(side="left", padx=6)
 
     tree = ttk.Treeview(root, columns=("codex",), height=12)
     tree.heading("#0", text="Repo / pull request", anchor="w")
