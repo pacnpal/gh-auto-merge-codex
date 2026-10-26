@@ -1,4 +1,5 @@
 import json
+import os
 import pathlib
 import subprocess
 import tempfile
@@ -207,6 +208,12 @@ class Test(unittest.TestCase):
         with mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("gh", 120)):
             r = ca.gh("pr", "list")
         self.assertEqual((r.returncode, r.stderr), (1, "gh timed out after 120s"))
+
+    def test_gh_spawns_without_fork(self):  # a forked child prints macOS MallocStackLogging noise
+        with mock.patch.object(ca, "GH", "/bin/echo"), mock.patch("os.posix_spawn", wraps=os.posix_spawn) as spawn:
+            r = ca.gh("hi")
+        self.assertEqual(r.stdout, "hi\n")
+        spawn.assert_called_once()
 
     def test_request_review_posts_comment(self):
         fake = FakeGh()
