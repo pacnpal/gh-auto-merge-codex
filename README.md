@@ -44,12 +44,12 @@ work too).
   can monitor any number of repos at once.
 - **Queue (--auto) / Force / Admin**: the merge mode (see Behavior).
 - **every N s**: the polling interval.
-- **Auto-merge**: untick it to watch without merging.
+- **Auto-merge**: untick it to watch without merging. Conflict comments are still posted.
 - **Request Codex review**: posts an `@codex review` comment on each selected PR.
 - **Poll now**: poll immediately.
 
 The tree lists each repo's open PRs and Codex's verdict on each: `👍`,
-`no major issues`, `—` (none yet), or `?` (lookup failed). A newly added repo is
+`no major issues`, `merge conflict`, `—` (none yet), or `?` (lookup failed). A newly added repo is
 shown right away. Merging starts on the next poll.
 
 The window saves its repo list, merge mode, interval, Auto-merge setting, and
@@ -96,6 +96,13 @@ Every interval it lists each repo's open PRs, checks each one for Codex's
 go-ahead, and runs `gh pr merge --squash --auto --match-head-commit <head>`,
 which queues the merge behind the repo's required checks. `--match-head-commit`
 makes GitHub refuse the merge if someone pushed after the poll.
+
+A PR GitHub reports as conflicting with its base isn't checked or merged.
+Instead the tool comments on it once per head commit, even with merging off, saying it has merge
+conflicts with the base branch. A hidden marker in that comment keeps it from
+commenting again, including after a restart. GitHub works out whether a PR
+conflicts in the background, so a fresh push can take one more poll to be
+flagged.
 
 Where auto-merge isn't allowed on the repo, `gh` rejects that, and it
 retries the merge without `--auto`. The fallback is gated on that specific
