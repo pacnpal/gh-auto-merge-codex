@@ -9,15 +9,23 @@ import codex_automerge as ca
 REPO = "github.com/octo/direct-repo"
 HEAD = "bfd4fae453adcbc45e6cc0a4034898a3002d97ea"
 BOT = "chatgpt-codex-connector[bot]"
-CLEAN = "Codex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `{}`"
+CLEAN = "<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues. Keep them coming!\n\n**Reviewed commit:** `{}`"
+PUSHED, AFTER, BEFORE = "2026-10-26T11:17:58Z", "2026-10-26T11:27:33Z", "2026-10-26T11:00:00Z"
+THUMBS = [{"user": {"login": BOT}, "content": "+1", "created_at": AFTER}]
+
+
+def receipt(sha=HEAD[:10], at=AFTER, body=CLEAN):
+    return {"user": {"login": BOT}, "body": body.format(sha), "created_at": at}
 
 
 class FakeGh:
     """Stands in for `gh`; records every call."""
 
-    def __init__(self, reactions=(), comments=(), fail=(), merge=(0, "✓ Squashed and merged pull request")):
+    def __init__(self, reactions=(), comments=(), fail=(), merge=(0, "✓ Squashed and merged pull request"),
+                 suites=(PUSHED,)):
         self.calls = []
         self.reactions, self.comments, self.fail, self.merge = reactions, comments, fail, merge
+        self.suites = suites
 
     def __call__(self, *args, cwd=None):
         self.calls.append((args, cwd))
@@ -28,6 +36,8 @@ class FakeGh:
             return done(0, "https://github.example/acme/local-repo\n" if cwd else f"https://github.com/{args[2]}\n")
         if args[:2] == ("pr", "list"):
             return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD}]))
+        if args[0] == "api" and "check-suites" in args[-1]:
+            return done(0, json.dumps([{"check_suites": [{"created_at": t} for t in self.suites]}]))
         if args[0] == "api":
             return done(0, json.dumps([list(self.reactions if "reactions" in args[-1] else self.comments)]))
         if args[:2] == ("pr", "merge"):
@@ -53,7 +63,7 @@ class Test(unittest.TestCase):
             self.assertEqual(ca.resolve("octo/direct-repo"), REPO)
 
     def test_thumbs_up_merges_queued_on_head(self):
-        fake = FakeGh(reactions=[{"user": {"login": BOT}, "content": "+1"}])
+        fake = FakeGh(reactions=THUMBS)
         rows, log = run(fake)
         self.assertEqual(rows[0][1], "👍")
         merge = fake.merges()[0]
@@ -61,27 +71,46 @@ class Test(unittest.TestCase):
         self.assertEqual(merge[merge.index("--match-head-commit") + 1], HEAD)
 
     def test_impersonator_does_not_merge(self):
-        fake = FakeGh(reactions=[{"user": {"login": "chatgpt-codex-connector-evil"}, "content": "+1"}],
-                      comments=[{"user": {"login": "someone"}, "body": CLEAN.format(HEAD[:10])}])
+        fake = FakeGh(reactions=[dict(THUMBS[0], user={"login": "chatgpt-codex-connector-evil"})],
+                      comments=[dict(receipt(), user={"login": "someone"})])
         _, log = run(fake)
         self.assertIn("#7: no 👍 or clean review yet", log)
         self.assertEqual(fake.merges(), [])
 
     def test_clean_comment_on_current_head_merges(self):
-        for body in (CLEAN.format(HEAD[:10]), CLEAN.replace("'", "’").format(HEAD[:7])):
-            fake = FakeGh(comments=[{"user": {"login": BOT}, "body": body}])
+        for c in (receipt(), receipt(HEAD, body=CLEAN.replace("'", "’"))):
+            fake = FakeGh(comments=[c])
             rows, _ = run(fake)
             self.assertEqual(rows[0][1], "no major issues")
             self.assertEqual(len(fake.merges()), 1)
 
     def test_clean_comment_on_stale_head_does_not_merge(self):
-        fake = FakeGh(comments=[{"user": {"login": BOT}, "body": CLEAN.format("0123456789")}])
+        fake = FakeGh(comments=[receipt("0123456789")])
         rows, _ = run(fake)
         self.assertIsNone(rows[0][1])
         self.assertEqual(fake.merges(), [])
 
+    def test_signals_older_than_the_push_do_not_merge(self):
+        # Pushed after Codex's go-ahead: a 👍 or a receipt whose short hash a crafted commit shares.
+        fake = FakeGh(reactions=[dict(THUMBS[0], created_at=BEFORE)], comments=[receipt(at=BEFORE)])
+        rows, _ = run(fake)
+        self.assertIsNone(rows[0][1])
+        self.assertEqual(fake.merges(), [])
+
+    def test_thumbs_up_needs_a_push_time(self):
+        rows, _ = run(FakeGh(reactions=THUMBS, suites=()))
+        self.assertIsNone(rows[0][1])
+        rows, _ = run(FakeGh(comments=[receipt()], suites=()))
+        self.assertEqual(rows[0][1], "no major issues")
+
+    def test_only_codex_review_receipts_count(self):
+        reply = "Sure! Codex Review: Didn't find any major issues.\n**Reviewed commit:** `{}`"
+        for c in (receipt(body=reply), receipt(HEAD[:7])):  # free-text reply; hash too short
+            rows, _ = run(FakeGh(comments=[c]))
+            self.assertIsNone(rows[0][1])
+
     def test_modes(self):
-        thumbs = [{"user": {"login": BOT}, "content": "+1"}]
+        thumbs = THUMBS
         admin, force = FakeGh(reactions=thumbs), FakeGh(reactions=thumbs)
         run(admin, "admin")
         run(force, "force")
@@ -91,7 +120,7 @@ class Test(unittest.TestCase):
         self.assertNotIn("--auto", force.merges()[0])
 
     def test_auto_fallback_only_on_auto_merge_error(self):
-        thumbs = [{"user": {"login": BOT}, "content": "+1"}]
+        thumbs = THUMBS
         fake = FakeGh(reactions=thumbs, merge=(1, "auto merge is not allowed for this repository"))
         _, log = run(fake)
         self.assertEqual(len(fake.merges()), 2)
@@ -102,7 +131,7 @@ class Test(unittest.TestCase):
         self.assertIn("MERGE FAILED: merge conflict", log)
 
     def test_not_merged_unless_gh_says_so(self):
-        fake = FakeGh(reactions=[{"user": {"login": BOT}, "content": "+1"}], merge=(0, "enabled auto-merge"))
+        fake = FakeGh(reactions=THUMBS, merge=(0, "enabled auto-merge"))
         _, log = run(fake, "force")
         self.assertIn("not merged — enabled auto-merge", log)
 

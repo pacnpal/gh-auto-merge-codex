@@ -21,8 +21,9 @@ import threading
 import time
 
 BOT = os.environ.get("BOT", "chatgpt-codex-connector")
-CLEAN = re.compile(r"Didn.t find any major issues")  # . matches ' and ’
-REVIEWED = re.compile(r"Reviewed commit:\W*([0-9a-f]{7,40})")
+# Only Codex's review receipt, from its first byte: a free-text Codex reply can't start with this.
+CLEAN = re.compile(r"\s*<!-- codex-review-receipt:v1 -->\s*Codex Review: Didn.t find any major issues")  # . matches ' and ’
+REVIEWED = re.compile(r"Reviewed commit:\W*([0-9a-f]{10,40})")
 MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
 
 
@@ -61,17 +62,28 @@ def is_bot(item):
     return (item.get("user") or {}).get("login") in (BOT, BOT + "[bot]")
 
 
+def pushed_at(host, nwo, sha):
+    """When the commit last arrived on GitHub: its newest check suite (GitHub's clock, not git's). None if it has none."""
+    pages = gh_json("api", "--hostname", host, "--paginate", "--slurp",
+                    f"repos/{nwo}/commits/{sha}/check-suites?per_page=100")
+    return max((s["created_at"] for page in pages for s in page["check_suites"]), default=None)
+
+
 def verdict(repo, pr):
-    """How Codex cleared this PR, or None."""
+    """How Codex cleared this PR's current head, or None."""
     host, nwo = repo.split("/", 1)
     issue = f"repos/{nwo}/issues/{pr['number']}"
-    if any(is_bot(r) and r["content"] == "+1" for r in api(host, f"{issue}/reactions?per_page=100")):
+    pushed = pushed_at(host, nwo, pr["headRefOid"])
+    # A 👍 names no commit and survives pushes, so it only counts if it came after this head arrived.
+    if pushed and any(is_bot(r) and r["content"] == "+1" and r["created_at"] > pushed
+                      for r in api(host, f"{issue}/reactions?per_page=100")):
         return "👍"
     for c in api(host, f"{issue}/comments?per_page=100"):
         body = c.get("body") or ""
-        m = is_bot(c) and CLEAN.search(body) and REVIEWED.search(body)
-        # A clean comment only counts for the commit it reviewed, not one pushed since.
-        if m and pr["headRefOid"].startswith(m[1]):
+        m = is_bot(c) and CLEAN.match(body) and REVIEWED.search(body)
+        # Counts only for the commit it reviewed, and only if that head didn't arrive later
+        # (a pushed commit crafted to share the short hash).
+        if m and pr["headRefOid"].startswith(m[1]) and (not pushed or c["created_at"] > pushed):
             return "no major issues"
     return None
 

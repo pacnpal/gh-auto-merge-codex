@@ -6,9 +6,17 @@ Codex (`chatgpt-codex-connector`) signals "reviewed, no findings" in one of two
 ways, neither of which is a review or a status check:
 
 - a `+1` reaction on the PR body, or
-- a comment saying **"Didn't find any major issues"**. This counts only when
-  the comment's `Reviewed commit:` matches the PR's current head, so a clean
-  review of an older commit can't merge newer pushes.
+- its review receipt saying **"Codex Review: Didn't find any major issues"**.
+  This counts only when the receipt's `Reviewed commit:` matches the PR's
+  current head, so a clean review of an older commit can't merge newer pushes.
+  A free-text Codex reply containing the same words doesn't count.
+
+Both must be newer than the PR's current commit. The commit's arrival time is
+taken from its newest check suite, which GitHub timestamps (git dates can be
+faked). A 👍 names no commit and stays on the PR through pushes, so a 👍 on a
+commit with no check suites is ignored, and only the receipt can merge it. A
+check suite added after Codex's go-ahead (say, a re-triggered workflow) also
+voids it. Request a new Codex review to get a fresh one.
 
 ## Requirements
 
