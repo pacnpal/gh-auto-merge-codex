@@ -1,0 +1,19 @@
+codex_automerge.py
+  s_48eace869edd3e::t_2ef270efc04367 183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d6ca78104cdcd2c1874f10261d06fcbb448cdb58",
+  "prompts": {},
+  "sessions": {
+    "s_48eace869edd3e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ff963dce-364d-4c6c-8cfa-c75f8d3b2ce1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
