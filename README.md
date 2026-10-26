@@ -12,11 +12,11 @@ ways, neither of which is a review or a status check:
   A free-text Codex reply containing the same words doesn't count.
 
 Both must be newer than the PR's current commit. The commit's arrival time is
-taken from its newest check suite, which GitHub timestamps (git dates can be
-faked). A 👍 names no commit and stays on the PR through pushes, so a 👍 on a
-commit with no check suites is ignored, and only the receipt can merge it. A
-check suite added after Codex's go-ahead (say, a re-triggered workflow) also
-voids it. Request a new Codex review to get a fresh one.
+the later of its newest check suite and the PR's latest force-push, both
+timestamped by GitHub (git dates can be faked). A 👍 names no commit and stays
+on the PR through pushes. If neither timestamp exists, nothing merges. A check
+suite added after Codex's go-ahead (say, a re-triggered workflow) also voids
+it. Request a new Codex review to get a fresh one.
 
 ## Requirements
 

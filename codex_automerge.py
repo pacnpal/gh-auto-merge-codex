@@ -28,7 +28,10 @@ MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
 
 
 def gh(*args, cwd=None):
-    return subprocess.run(["gh", *args], cwd=cwd, capture_output=True, text=True)
+    try:
+        return subprocess.run(["gh", *args], cwd=cwd, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:  # a hung gh would stall every repo; fail like any gh error
+        return subprocess.CompletedProcess(args, 1, "", "gh timed out after 120s")
 
 
 def output(r):
@@ -62,28 +65,34 @@ def is_bot(item):
     return (item.get("user") or {}).get("login") in (BOT, BOT + "[bot]")
 
 
-def pushed_at(host, nwo, sha):
-    """When the commit last arrived on GitHub: its newest check suite (GitHub's clock, not git's). None if it has none."""
+def pushed_at(host, nwo, pr):
+    """When the PR head last changed by GitHub's clock (git dates can be faked): the head
+    commit's newest check suite or the PR's latest force-push. None if neither exists."""
     pages = gh_json("api", "--hostname", host, "--paginate", "--slurp",
-                    f"repos/{nwo}/commits/{sha}/check-suites?per_page=100")
-    return max((s["created_at"] for page in pages for s in page["check_suites"]), default=None)
+                    f"repos/{nwo}/commits/{pr['headRefOid']}/check-suites?per_page=100")
+    times = [s["created_at"] for page in pages for s in page["check_suites"]]
+    times += [e["created_at"] for e in api(host, f"repos/{nwo}/issues/{pr['number']}/timeline?per_page=100")
+              if e.get("event") == "head_ref_force_pushed"]
+    return max(times, default=None)
 
 
 def verdict(repo, pr):
     """How Codex cleared this PR's current head, or None."""
     host, nwo = repo.split("/", 1)
     issue = f"repos/{nwo}/issues/{pr['number']}"
-    pushed = pushed_at(host, nwo, pr["headRefOid"])
+    pushed = pushed_at(host, nwo, pr)
+    if not pushed:  # can't tell when this head arrived, so no go-ahead can be tied to it
+        return None
     # A 👍 names no commit and survives pushes, so it only counts if it came after this head arrived.
-    if pushed and any(is_bot(r) and r["content"] == "+1" and r["created_at"] > pushed
-                      for r in api(host, f"{issue}/reactions?per_page=100")):
+    if any(is_bot(r) and r["content"] == "+1" and r["created_at"] > pushed
+           for r in api(host, f"{issue}/reactions?per_page=100")):
         return "👍"
     for c in api(host, f"{issue}/comments?per_page=100"):
         body = c.get("body") or ""
         m = is_bot(c) and CLEAN.match(body) and REVIEWED.search(body)
         # Counts only for the commit it reviewed, and only if that head didn't arrive later
         # (a pushed commit crafted to share the short hash).
-        if m and pr["headRefOid"].startswith(m[1]) and (not pushed or c["created_at"] > pushed):
+        if m and pr["headRefOid"].startswith(m[1]) and c["created_at"] > pushed:
             return "no major issues"
     return None
 
@@ -117,7 +126,9 @@ def request_review(repo, number):
 def poll(repo, mode, log, merging=True):
     """One pass over repo's open PRs. Returns [(pr, verdict)], or None if listing failed."""
     try:
-        prs = gh_json("pr", "list", "-R", repo, "--state", "open", "--json", "number,title,headRefOid")
+        # shortcut: PRs past the 1000th open one are never seen; page through the API if a repo gets there.
+        prs = gh_json("pr", "list", "-R", repo, "--state", "open", "--limit", "1000",
+                      "--json", "number,title,headRefOid")
     except (RuntimeError, ValueError) as e:
         log(f"{repo}: failed to list open PRs; retrying ({e})")
         return None

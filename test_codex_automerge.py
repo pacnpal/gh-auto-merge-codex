@@ -22,10 +22,10 @@ class FakeGh:
     """Stands in for `gh`; records every call."""
 
     def __init__(self, reactions=(), comments=(), fail=(), merge=(0, "✓ Squashed and merged pull request"),
-                 suites=(PUSHED,)):
+                 suites=(PUSHED,), timeline=()):
         self.calls = []
         self.reactions, self.comments, self.fail, self.merge = reactions, comments, fail, merge
-        self.suites = suites
+        self.suites, self.timeline = suites, timeline
 
     def __call__(self, *args, cwd=None):
         self.calls.append((args, cwd))
@@ -38,6 +38,8 @@ class FakeGh:
             return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD}]))
         if args[0] == "api" and "check-suites" in args[-1]:
             return done(0, json.dumps([{"check_suites": [{"created_at": t} for t in self.suites]}]))
+        if args[0] == "api" and "timeline" in args[-1]:
+            return done(0, json.dumps([list(self.timeline)]))
         if args[0] == "api":
             return done(0, json.dumps([list(self.reactions if "reactions" in args[-1] else self.comments)]))
         if args[:2] == ("pr", "merge"):
@@ -97,11 +99,20 @@ class Test(unittest.TestCase):
         self.assertIsNone(rows[0][1])
         self.assertEqual(fake.merges(), [])
 
-    def test_thumbs_up_needs_a_push_time(self):
-        rows, _ = run(FakeGh(reactions=THUMBS, suites=()))
+    def test_no_push_time_means_no_go_ahead(self):
+        fake = FakeGh(reactions=THUMBS, comments=[receipt()], suites=())
+        rows, _ = run(fake)
         self.assertIsNone(rows[0][1])
-        rows, _ = run(FakeGh(comments=[receipt()], suites=()))
-        self.assertEqual(rows[0][1], "no major issues")
+        self.assertEqual(fake.merges(), [])
+
+    def test_force_push_after_go_ahead_voids_it(self):
+        # Head force-pushed back to an older commit whose check suites predate the 👍.
+        fake = FakeGh(reactions=THUMBS, comments=[receipt()], suites=(BEFORE,),
+                      timeline=[{"event": "committed"},
+                                {"event": "head_ref_force_pushed", "created_at": "2026-10-26T12:00:00Z"}])
+        rows, _ = run(fake)
+        self.assertIsNone(rows[0][1])
+        self.assertEqual(fake.merges(), [])
 
     def test_only_codex_review_receipts_count(self):
         reply = "Sure! Codex Review: Didn't find any major issues.\n**Reviewed commit:** `{}`"
@@ -141,6 +152,11 @@ class Test(unittest.TestCase):
         self.assertIn("failed to list open PRs; retrying", log)
         _, log = run(FakeGh(fail=["api"]))
         self.assertIn("#7: failed to fetch Codex reactions/comments; retrying", log)
+
+    def test_gh_timeout_is_a_gh_failure(self):
+        with mock.patch("subprocess.run", side_effect=subprocess.TimeoutExpired("gh", 120)):
+            r = ca.gh("pr", "list")
+        self.assertEqual((r.returncode, r.stderr), (1, "gh timed out after 120s"))
 
     def test_request_review_posts_comment(self):
         fake = FakeGh()
