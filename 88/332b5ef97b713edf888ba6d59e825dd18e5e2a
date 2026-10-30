@@ -1,0 +1,24 @@
+test_codex_automerge.py
+  s_87a630d845acde::t_1a7e31fcbce002 84,87-88,90-97
+  s_87a630d845acde::t_067b1a0ea6f096 85-86,89
+codex_automerge.py
+  s_87a630d845acde::t_1a7e31fcbce002 89,95-98,107,184-186
+README.md
+  s_87a630d845acde::t_1a7e31fcbce002 52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "88332b5ef97b713edf888ba6d59e825dd18e5e2a",
+  "prompts": {},
+  "sessions": {
+    "s_87a630d845acde": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3df93c99-bc27-405b-9c0b-20df90f462ff",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
