@@ -81,6 +81,20 @@ class Test(unittest.TestCase):
         self.assertIn("--auto", merge)
         self.assertEqual(merge[merge.index("--match-head-commit") + 1], HEAD)
 
+    def test_eyes_shows_reviewing_without_merging(self):
+        fake = FakeGh(reactions=[dict(THUMBS[0], content="eyes")])
+        rows, log = run(fake)
+        self.assertEqual(rows[0][1], "👀")
+        self.assertIn("#7: Codex is reviewing (👀)", log)
+        self.assertEqual(fake.merges(), [])
+        # A clean verdict wins over a leftover 👀; a 👀 from before this head doesn't count.
+        rows, _ = run(FakeGh(reactions=[dict(THUMBS[0], content="eyes")], comments=[receipt()]))
+        self.assertEqual(rows[0][1], "no major issues")
+        fake = FakeGh(reactions=[dict(THUMBS[0], content="eyes", created_at=BEFORE)])
+        rows, _ = run(fake)
+        self.assertIsNone(rows[0][1])
+        self.assertEqual(fake.merges(), [])
+
     def test_merge_mode_is_asked_at_merge_time(self):
         # GUI: repo removed or Auto-merge unticked while this poll was running.
         fake = FakeGh(reactions=THUMBS)

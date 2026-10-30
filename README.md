@@ -49,7 +49,7 @@ work too).
 - **Poll now**: poll immediately.
 
 The tree lists each repo's open PRs and Codex's verdict on each: `👍`,
-`no major issues`, `merge conflict`, `—` (none yet), or `?` (lookup failed). A newly added repo is
+`no major issues`, `👀` (Codex is reviewing), `merge conflict`, `—` (none yet), or `?` (lookup failed). A newly added repo is
 shown right away. Merging starts on the next poll.
 
 The window saves its repo list, merge mode, interval, Auto-merge setting, and
