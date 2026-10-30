@@ -86,15 +86,16 @@ def pushed_at(host, nwo, pr):
 
 
 def verdict(repo, pr):
-    """How Codex cleared this PR's current head, or None."""
+    """How Codex cleared this PR's current head, "👀" if it's still reviewing it, or None."""
     host, nwo = repo.split("/", 1)
     issue = f"repos/{nwo}/issues/{pr['number']}"
     pushed = pushed_at(host, nwo, pr)
     if not pushed:  # can't tell when this head arrived, so no go-ahead can be tied to it
         return None
-    # A 👍 names no commit and survives pushes, so it only counts if it came after this head arrived.
-    if any(is_bot(r) and r["content"] == "+1" and r["created_at"] > pushed
-           for r in api(host, f"{issue}/reactions?per_page=100")):
+    # A reaction names no commit and survives pushes, so it only counts if it came after this head arrived.
+    reactions = {r["content"] for r in api(host, f"{issue}/reactions?per_page=100")
+                 if is_bot(r) and r["created_at"] > pushed}
+    if "+1" in reactions:
         return "👍"
     for c in api(host, f"{issue}/comments?per_page=100"):
         body = c.get("body") or ""
@@ -103,7 +104,7 @@ def verdict(repo, pr):
         # (a pushed commit crafted to share the short hash).
         if m and pr["headRefOid"].startswith(m[1]) and c["created_at"] > pushed:
             return "no major issues"
-    return None
+    return "👀" if "eyes" in reactions else None  # Codex reacts 👀 when it starts a review
 
 
 def merge(repo, pr, mode):
@@ -180,7 +181,9 @@ def poll(repo, log, merge_mode):
             rows.append((pr, "?"))
             continue
         rows.append((pr, v))
-        if not v:
+        if v == "👀":
+            log(f"{tag}: Codex is reviewing (👀)")
+        elif not v:
             log(f"{tag}: no 👍 or clean review yet")
         elif (mode := merge_mode()) is not None:
             log(f"{tag}: {v} — squash merging")
