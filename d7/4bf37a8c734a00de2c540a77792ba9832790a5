@@ -1,0 +1,23 @@
+prherd.py
+  s_b709e3bfd9f4c6::t_8b6cb760af436c 199-201,208
+README.md
+  s_b709e3bfd9f4c6::t_8b6cb760af436c 61
+test_prherd.py
+  s_b709e3bfd9f4c6::t_8b6cb760af436c 268-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d74bf37a8c734a00de2c540a77792ba9832790a5",
+  "prompts": {},
+  "sessions": {
+    "s_b709e3bfd9f4c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9849c29-441f-4165-8f61-30b94c3460a0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
