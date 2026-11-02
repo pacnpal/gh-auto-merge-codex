@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-import codex_automerge as ca
+import prherd as ca
 
 REPO = "github.com/octo/direct-repo"
 HEAD = "bfd4fae453adcbc45e6cc0a4034898a3002d97ea"
@@ -261,9 +261,16 @@ class Test(unittest.TestCase):
                 ca.load_settings()
             self.assertEqual(pathlib.Path(ca.CONFIG).read_text(), "{oops")
 
+    def test_settings_fall_back_to_pre_rename_file(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/prherd.json"):
+            pathlib.Path(f"{d}/codex-automerge.json").write_text('{"repos": ["a/b"]}')
+            self.assertEqual(ca.load_settings()["repos"], ["a/b"])
+            ca.save_settings({"repos": ["c/d"]})
+            self.assertEqual(ca.load_settings()["repos"], ["c/d"])  # the new file wins once written
+
     def test_procfile(self):
         procfile = pathlib.Path(__file__).with_name("Procfile").read_text()
-        self.assertIn("codex-automerge: ./codex_automerge.py --headless --admin owner/repo", procfile)
+        self.assertIn("prherd: ./prherd.py --headless --admin owner/repo", procfile)
 
 
 if __name__ == "__main__":
