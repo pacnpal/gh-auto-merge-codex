@@ -1,4 +1,4 @@
-# gh-auto-merge-codex
+# prherd
 
 Watch GitHub repos' open PRs and squash-merge each one Codex has cleared.
 
@@ -26,13 +26,13 @@ Python 3 with tkinter (the python.org macOS installer includes it), plus
 ## Usage
 
 ```bash
-./codex_automerge.py [--force|--admin] [--interval N] [--headless] [repo ...]
+./prherd.py [--force|--admin] [--interval N] [--headless] [repo ...]
 ```
 
 ```bash
-./codex_automerge.py                                  # open the window, add repos there
-./codex_automerge.py owner/a owner/b ../checkout     # open the window with repos preloaded
-./codex_automerge.py --headless --admin owner/a      # no window; log to stdout
+./prherd.py                                 # open the window, add repos there
+./prherd.py owner/a owner/b ../checkout     # open the window with repos preloaded
+./prherd.py --headless --admin owner/a      # no window; log to stdout
 ```
 
 A `repo` is `owner/repo` or a local checkout directory (GitHub Enterprise hosts
@@ -53,12 +53,12 @@ The tree lists each repo's open PRs and Codex's verdict on each: `👍`,
 shown right away. Merging starts on the next poll.
 
 The window saves its repo list, merge mode, interval, Auto-merge setting, and
-size to `$XDG_CONFIG_HOME/codex-automerge.json` (default
-`~/.config/codex-automerge.json`) whenever one changes and when you close it,
+size to `$XDG_CONFIG_HOME/prherd.json` (default
+`~/.config/prherd.json`) whenever one changes and when you close it,
 and restores them at the next launch. `repo` arguments are added to the saved
 list. `--force`, `--admin`, and `--interval` override the saved values. If the
-file can't be parsed, the tool exits instead of overwriting it. `--headless`
-neither reads nor writes this file.
+file can't be parsed, the tool exits instead of overwriting it. If only the old
+`codex-automerge.json` exists there, it's renamed to `prherd.json`. `--headless` neither reads nor writes these files.
 
 ## Options
 
@@ -140,7 +140,7 @@ the next interval.
 ## Check
 
 ```sh
-python3 -m unittest test_codex_automerge
+python3 -m unittest test_prherd
 ```
 
 ## Caveat

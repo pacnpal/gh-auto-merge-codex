@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Watch GitHub repos' open PRs; squash-merge each one Codex has cleared.
 
-  ./codex_automerge.py [--force|--admin] [--interval N] [--headless] [repo ...]
+  ./prherd.py [--force|--admin] [--interval N] [--headless] [repo ...]
 
 Codex (chatgpt-codex-connector) says "reviewed, no findings" with a +1 reaction
 on the PR body, or with a "Didn't find any major issues" comment naming the
@@ -27,10 +27,11 @@ BOT_ID = int(os.environ.get("BOT_ID", "199175422"))
 CLEAN = re.compile(r"\s*<!-- codex-review-receipt:v1 -->\s*Codex Review: Didn.t find any major issues")  # . matches ' and ’
 REVIEWED = re.compile(r"Reviewed commit:\W*([0-9a-f]{10,40})")
 # Hidden in the conflict comment so each head commit gets one, across restarts too.
+# Keeps the pre-rename name: a new marker would repost on every PR already commented.
 CONFLICT = "<!-- codex-automerge:conflict {} -->"
 MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
 # The window's repos and controls, restored at launch.
-CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "codex-automerge.json")
+CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "prherd.json")
 # A full path, no cwd and close_fds=False let subprocess use posix_spawn instead of fork: macOS libmalloc
 # prints "MallocStackLogging: can't turn off..." in every forked child of the Tk process.
 GH = os.path.abspath(found) if (found := shutil.which("gh")) else "gh"  # absolute: a relative PATH hit breaks under cwd
@@ -193,7 +194,10 @@ def poll(repo, log, merge_mode):
 
 def load_settings():
     """Saved window settings, each checked: a bad mode would otherwise merge() as force."""
+    old = os.path.join(os.path.dirname(CONFIG), "codex-automerge.json")  # the pre-rename file
     try:
+        if os.path.exists(old) and not os.path.exists(CONFIG):
+            os.replace(old, CONFIG)  # move, not copy: a stale old file could resurface later
         with open(CONFIG) as f:
             s = json.load(f)
         if not isinstance(s, dict):
@@ -241,7 +245,7 @@ def gui(targets, mode, interval):
     mode = saved["mode"] if mode is None else mode  # a CLI flag wins for this run
     interval = interval or saved["interval"]
     root = tk.Tk()
-    root.title("Codex automerge")
+    root.title("prherd")
     if saved["geometry"]:
         root.geometry(saved["geometry"])
     events = queue.Queue()  # worker threads never touch tk; they post here
