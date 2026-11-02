@@ -58,8 +58,7 @@ size to `$XDG_CONFIG_HOME/prherd.json` (default
 and restores them at the next launch. `repo` arguments are added to the saved
 list. `--force`, `--admin`, and `--interval` override the saved values. If the
 file can't be parsed, the tool exits instead of overwriting it. If only the old
-`codex-automerge.json` exists there, it's read instead and the next save writes
-`prherd.json`. `--headless` neither reads nor writes these files.
+`codex-automerge.json` exists there, it's renamed to `prherd.json`. `--headless` neither reads nor writes these files.
 
 ## Options
 

@@ -265,8 +265,9 @@ class Test(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/prherd.json"):
             pathlib.Path(f"{d}/codex-automerge.json").write_text('{"repos": ["a/b"]}')
             self.assertEqual(ca.load_settings()["repos"], ["a/b"])
-            ca.save_settings({"repos": ["c/d"]})
-            self.assertEqual(ca.load_settings()["repos"], ["c/d"])  # the new file wins once written
+            self.assertFalse(pathlib.Path(f"{d}/codex-automerge.json").exists())  # moved, can't resurface
+            pathlib.Path(ca.CONFIG).unlink()
+            self.assertEqual(ca.load_settings()["repos"], [])
 
     def test_procfile(self):
         procfile = pathlib.Path(__file__).with_name("Procfile").read_text()

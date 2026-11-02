@@ -195,16 +195,17 @@ def poll(repo, log, merge_mode):
 def load_settings():
     """Saved window settings, each checked: a bad mode would otherwise merge() as force."""
     old = os.path.join(os.path.dirname(CONFIG), "codex-automerge.json")  # the pre-rename file
-    path = old if not os.path.exists(CONFIG) and os.path.exists(old) else CONFIG
     try:
-        with open(path) as f:
+        if os.path.exists(old) and not os.path.exists(CONFIG):
+            os.replace(old, CONFIG)  # move, not copy: a stale old file could resurface later
+        with open(CONFIG) as f:
             s = json.load(f)
         if not isinstance(s, dict):
             raise ValueError("not a JSON object")
     except FileNotFoundError:
         s = {}
     except (OSError, ValueError) as e:  # exit rather than let the next save overwrite it
-        sys.exit(f"can't read saved settings {path}: {e}; fix or delete it")
+        sys.exit(f"can't read saved settings {CONFIG}: {e}; fix or delete it")
     repos, interval, geometry = s.get("repos"), s.get("interval"), s.get("geometry")
     return {
         "repos": [r for r in repos if isinstance(r, str)] if isinstance(repos, list) else [],
