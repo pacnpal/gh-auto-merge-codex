@@ -1,0 +1,28 @@
+Procfile
+  s_b709e3bfd9f4c6::t_2f56d22e847c68 3
+README.md
+  s_b709e3bfd9f4c6::t_2f56d22e847c68 1,29,56-57,144
+  s_b709e3bfd9f4c6::t_484442f6151e79 33-35,60-62
+test_prherd.py
+  s_b709e3bfd9f4c6::t_2f56d22e847c68 1-263,271-277
+  s_b709e3bfd9f4c6::t_484442f6151e79 264-270
+prherd.py
+  s_b709e3bfd9f4c6::t_484442f6151e79 30,197-198,200,207
+  s_b709e3bfd9f4c6::t_2f56d22e847c68 1-29,31-196,199,201-206,208-443
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b3f1f8610603eb800e49921640a2b319262dd0a2",
+  "prompts": {},
+  "sessions": {
+    "s_b709e3bfd9f4c6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9849c29-441f-4165-8f61-30b94c3460a0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "pacnpal <183241239+pacnpal@users.noreply.github.com>"
+    }
+  }
+}
