@@ -25,10 +25,12 @@ class FakeGh:
     """Stands in for `gh`; records every call."""
 
     def __init__(self, reactions=(), comments=(), fail=(), merge=(0, "✓ Squashed and merged pull request"),
-                 suites=(PUSHED,), timeline=(), mergeable="MERGEABLE"):
+                 suites=(PUSHED,), timeline=(), mergeable="MERGEABLE", labels=(), late_labels=None, auto=None):
         self.calls = []
         self.reactions, self.comments, self.fail, self.merge = reactions, comments, fail, merge
         self.suites, self.timeline, self.mergeable = suites, timeline, mergeable
+        self.labels, self.auto = labels, auto
+        self.late_labels = labels if late_labels is None else late_labels  # as seen right before a merge
 
     def __call__(self, *args, cwd=None):
         self.calls.append((args, cwd))
@@ -39,7 +41,11 @@ class FakeGh:
             return done(0, "https://github.example/acme/local-repo\n" if cwd else f"https://github.com/{args[2]}\n")
         if args[:2] == ("pr", "list"):
             return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD,
-                                        "mergeable": self.mergeable, "baseRefName": "main"}]))
+                                        "mergeable": self.mergeable, "baseRefName": "main",
+                                        "labels": [{"name": n} for n in self.labels],
+                                        "autoMergeRequest": self.auto}]))
+        if args[:2] == ("pr", "view"):
+            return done(0, json.dumps({"labels": [{"name": n} for n in self.late_labels]}))
         if args[:2] == ("api", "--hostname") and args[-1] == "user":
             return done(0, json.dumps(ME))
         if args[0] == "api" and "check-suites" in args[-1]:
@@ -94,6 +100,74 @@ class Test(unittest.TestCase):
         rows, _ = run(fake)
         self.assertIsNone(rows[0][1])
         self.assertEqual(fake.merges(), [])
+
+    def test_marked_pr_is_not_merged_in_any_mode(self):
+        for mode in ("", "force", "admin"):
+            for label in ("do-not-merge", "Do-Not-Merge"):  # GitHub labels ignore case
+                fake = FakeGh(reactions=THUMBS, labels=[label, "bug"])
+                rows, log = run(fake, mode)
+                self.assertEqual(rows[0][1], "don't merge")
+                self.assertIn("#7: marked don't merge; skipping", log)
+                self.assertEqual(fake.merges(), [])
+
+    def test_other_labels_do_not_block(self):
+        fake = FakeGh(reactions=THUMBS, labels=["do-not-merge-yet", "bug"])
+        rows, _ = run(fake)
+        self.assertEqual((rows[0][1], len(fake.merges())), ("👍", 1))
+
+    def test_marked_while_polling_is_not_merged(self):
+        fake = FakeGh(reactions=THUMBS, late_labels=["do-not-merge"])
+        _, log = run(fake)
+        self.assertEqual(fake.merges(), [])
+        self.assertIn("marked don't merge since this poll started; not merging", log)
+
+    def test_labels_unreadable_before_merging_does_not_merge(self):
+        fake = FakeGh(reactions=THUMBS, fail=["pr view"])
+        _, log = run(fake)
+        self.assertEqual(fake.merges(), [])
+        self.assertIn("failed to re-check labels; not merging", log)
+
+    def test_marking_cancels_queued_auto_merge(self):
+        # Even with Auto-merge unticked: GitHub merges a queued PR by itself.
+        fake = FakeGh(labels=["do-not-merge"], auto={"enabledAt": AFTER}, reactions=THUMBS)
+        with mock.patch.object(ca, "gh", fake):
+            logs = []
+            ca.poll(REPO, logs.append, lambda: None)
+        self.assertEqual(fake.merges(), [("pr", "merge", "7", "-R", REPO, "--disable-auto")])
+        self.assertIn(f"  {REPO}#7: cancelled queued auto-merge", logs)
+        fake = FakeGh(labels=["do-not-merge"], auto={"enabledAt": AFTER}, fail=["--disable-auto"])
+        _, log = run(fake)
+        self.assertIn("cancelling auto-merge FAILED: boom", log)
+
+    def test_marked_conflict_is_not_commented_but_still_cancels_auto_merge(self):
+        # Queued and conflicting: GitHub would merge it the moment the conflict is resolved.
+        fake = FakeGh(labels=["do-not-merge"], mergeable="CONFLICTING", auto={"enabledAt": AFTER})
+        rows, _ = run(fake)
+        self.assertEqual(rows[0][1], "don't merge")
+        self.assertEqual(fake.comments_posted(), [])
+        self.assertEqual(len(fake.merges()), 1)
+        self.assertIn("--disable-auto", fake.merges()[0])
+
+    def test_mark_adds_and_removes_the_label(self):
+        fake = FakeGh()
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.mark(REPO, "7", True), "marked don't merge")
+            self.assertEqual(ca.mark(REPO, "7", False), "cleared don't merge")
+        path = "repos/octo/direct-repo/issues/7/labels"
+        create, add, remove = [args for args, _ in fake.calls]
+        self.assertEqual(create[:3], ("label", "create", "do-not-merge"))
+        self.assertNotIn("--force", create)  # a repo's own label keeps its color and description
+        self.assertEqual(add, ("api", "--hostname", "github.com", "-X", "POST", path, "-f", "labels[]=do-not-merge"))
+        self.assertEqual(remove, ("api", "--hostname", "github.com", "-X", "DELETE", f"{path}/do-not-merge"))
+
+    def test_mark_failure_is_reported(self):
+        # "label create" also fails when the label already exists, so only the labeling call decides.
+        with mock.patch.object(ca, "gh", FakeGh(fail=["label create"])):
+            self.assertEqual(ca.mark(REPO, "7", True), "marked don't merge")
+        with mock.patch.object(ca, "gh", FakeGh(fail=["POST"])):
+            self.assertEqual(ca.mark(REPO, "7", True), "marked don't merge FAILED: boom")
+        with mock.patch.object(ca, "gh", FakeGh(fail=["DELETE"])):
+            self.assertEqual(ca.mark(REPO, "7", False), "cleared don't merge FAILED: boom")
 
     def test_merge_mode_is_asked_at_merge_time(self):
         # GUI: repo removed or Auto-merge unticked while this poll was running.

@@ -9,6 +9,8 @@ reviewed commit. Neither is a review or a status check.
 
 --force merges immediately instead of queuing with --auto.
 --admin does the same and bypasses branch protection (gh pr merge --admin).
+
+A PR labeled do-not-merge is never merged, whatever Codex says.
 """
 import argparse
 import json
@@ -29,6 +31,9 @@ REVIEWED = re.compile(r"Reviewed commit:\W*([0-9a-f]{10,40})")
 # Hidden in the conflict comment so each head commit gets one, across restarts too.
 # Keeps the pre-rename name: a new marker would repost on every PR already commented.
 CONFLICT = "<!-- codex-automerge:conflict {} -->"
+# A PR with this label never merges. A label, not a local list, so it also holds headless,
+# on other machines, and when set from GitHub's web UI.
+DONT_MERGE = "do-not-merge"
 MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
 # The window's repos and controls, restored at launch.
 CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "prherd.json")
@@ -108,7 +113,17 @@ def verdict(repo, pr):
     return "👀" if "eyes" in reactions else None  # Codex reacts 👀 when it starts a review
 
 
+def dont_merge(pr):
+    return any(label["name"].lower() == DONT_MERGE for label in pr["labels"])
+
+
 def merge(repo, pr, mode):
+    # The poll's list can be a while old by now, and a merge can't be taken back.
+    try:
+        if dont_merge(gh_json("pr", "view", str(pr["number"]), "-R", repo, "--json", "labels")):
+            return "marked don't merge since this poll started; not merging"
+    except (RuntimeError, ValueError) as e:
+        return f"failed to re-check labels; not merging, retrying ({e})"
     args = ["pr", "merge", str(pr["number"]), "-R", repo, "--squash",
             "--match-head-commit", pr["headRefOid"]]
     if not mode:
@@ -134,6 +149,26 @@ def request_review(repo, number):
     return "asked Codex for a review" if not r.returncode else f"review request FAILED: {output(r)}"
 
 
+def mark(repo, number, dont):
+    """Add or remove the don't-merge label. A poll then cancels any auto-merge already queued."""
+    host, nwo = repo.split("/", 1)
+    labels = f"repos/{nwo}/issues/{number}/labels"
+    if dont:
+        # Without --force this leaves a label the repo already has as it is, and fails; that's fine.
+        gh("label", "create", DONT_MERGE, "-R", repo, "--color", "B60205",
+           "--description", "prherd won't merge this pull request")
+        r = gh("api", "--hostname", host, "-X", "POST", labels, "-f", f"labels[]={DONT_MERGE}")
+    else:
+        r = gh("api", "--hostname", host, "-X", "DELETE", f"{labels}/{DONT_MERGE}")
+    done = "marked don't merge" if dont else "cleared don't merge"
+    return done if not r.returncode else f"{done} FAILED: {output(r)}"
+
+
+def cancel_auto_merge(repo, pr):
+    r = gh("pr", "merge", str(pr["number"]), "-R", repo, "--disable-auto")
+    return "cancelled queued auto-merge" if not r.returncode else f"cancelling auto-merge FAILED: {output(r)}"
+
+
 def flag_conflict(repo, pr):
     """Comment once per head commit that the PR has merge conflicts."""
     host, nwo = repo.split("/", 1)
@@ -157,12 +192,12 @@ def poll(repo, log, merge_mode):
     """One pass over repo's open PRs. Returns [(pr, verdict)], or None if listing failed.
 
     merge_mode() is asked right before each merge: the mode to merge with, or None to skip.
-    Conflicting PRs are commented on either way.
+    Conflicting PRs are commented on either way, unless marked don't merge.
     """
     try:
         # shortcut: PRs past the 1000th open one are never seen; page through the API if a repo gets there.
         prs = gh_json("pr", "list", "-R", repo, "--state", "open", "--limit", "1000",
-                      "--json", "number,title,headRefOid,mergeable,baseRefName")
+                      "--json", "number,title,headRefOid,mergeable,baseRefName,labels,autoMergeRequest")
     except (RuntimeError, ValueError) as e:
         log(f"{repo}: failed to list open PRs; retrying ({e})")
         return None
@@ -170,6 +205,12 @@ def poll(repo, log, merge_mode):
     rows = []
     for pr in prs:
         tag = f"  {repo}#{pr['number']}"
+        if dont_merge(pr):
+            rows.append((pr, "don't merge"))
+            log(f"{tag}: marked don't merge; skipping")
+            if pr["autoMergeRequest"]:  # GitHub would merge it without us
+                log(f"{tag}: {cancel_auto_merge(repo, pr)}")
+            continue
         # UNKNOWN (GitHub still computing it) falls through; the next poll sees the answer.
         if pr.get("mergeable") == "CONFLICTING":  # a merge would fail; say so on the PR instead
             rows.append((pr, "merge conflict"))
@@ -286,12 +327,15 @@ def gui(targets, mode, interval):
             return log(f"can't add {target}: {e!r}")
         show(repo)
 
-    def show(repo):
-        events.put(("repo", repo))
+    def refresh(repo):
         try:
             events.put(("prs", repo, poll(repo, log, lambda: None)))  # show it now; merge on the next tick
         except Exception as e:
             log(f"{repo}: poll crashed; retrying next interval ({e!r})")
+
+    def show(repo):
+        events.put(("repo", repo))
+        refresh(repo)
 
     def add(_event=None):
         target = entry.get().strip()
@@ -311,6 +355,17 @@ def gui(targets, mode, interval):
             if "#" in iid:
                 repo, number = iid.rsplit("#", 1)
                 bg(lambda repo=repo, number=number: log(f"{repo}#{number}: {request_review(repo, number)}"))
+
+    def mark_all(selected, dont):
+        for repo, number in selected:
+            log(f"{repo}#{number}: {mark(repo, number, dont)}")
+        for repo in {repo for repo, _ in selected}:
+            refresh(repo)  # updates the tree and cancels a queued auto-merge without waiting for a tick
+
+    def set_dont_merge(dont):
+        selected = [iid.rsplit("#", 1) for iid in tree.selection() if "#" in iid]
+        if selected:
+            bg(mark_all, selected, dont)
 
     def poll_all(snapshot):
         try:
@@ -389,6 +444,8 @@ def gui(targets, mode, interval):
     actions = ttk.Frame(root, padding=6)
     actions.pack(fill="x")
     ttk.Button(actions, text="Request Codex review", command=ask_codex).pack(side="left")
+    ttk.Button(actions, text="Don't merge", command=lambda: set_dont_merge(True)).pack(side="left")
+    ttk.Button(actions, text="Allow merge", command=lambda: set_dont_merge(False)).pack(side="left")
     ttk.Button(actions, text="Poll now", command=poll_now).pack(side="left")
 
     logbox = tk.Text(root, height=12, state="disabled", wrap="word")
