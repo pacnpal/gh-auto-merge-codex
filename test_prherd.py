@@ -44,7 +44,8 @@ class FakeGh:
             return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD,
                                         "mergeable": self.mergeable, "baseRefName": "main",
                                         "labels": [{"name": n} for n in self.labels],
-                                        "autoMergeRequest": self.auto}]))
+                                        "autoMergeRequest": self.auto, "isDraft": False,
+                                        "author": {"login": "octocat"}}]))
         if args[:2] == ("pr", "view"):
             return done(0, json.dumps({"labels": [{"name": n} for n in self.late_labels]}))
         if args[:2] == ("api", "--hostname") and args[-1] == "user":
@@ -133,7 +134,7 @@ class Test(unittest.TestCase):
         fake = FakeGh(reactions=THUMBS, late_labels=["do-not-merge"])
         _, log = run(fake)
         self.assertEqual(fake.merges(), [])
-        self.assertIn("marked don't merge since this poll started; not merging", log)
+        self.assertIn("marked don't merge; not merging", log)
 
     def test_labels_unreadable_before_merging_does_not_merge(self):
         fake = FakeGh(reactions=THUMBS, fail=["pr view"])
@@ -182,6 +183,32 @@ class Test(unittest.TestCase):
             self.assertEqual(ca.mark(REPO, "7", True), "marked don't merge FAILED: boom")
         with mock.patch.object(ca, "gh", FakeGh(fail=["DELETE"])):
             self.assertEqual(ca.mark(REPO, "7", False), "cleared don't merge FAILED: boom")
+
+    def test_browse_opens_a_pr_or_the_repo(self):
+        fake = FakeGh()
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.browse(REPO, "7"), "opened in browser")
+            self.assertEqual(ca.browse(REPO), "opened in browser")
+        self.assertEqual([args for args, _ in fake.calls], [("browse", "7", "-R", REPO), ("browse", "-R", REPO)])
+        with mock.patch.object(ca, "gh", FakeGh(fail=["browse"])):
+            self.assertEqual(ca.browse(REPO, "7"), "open in browser FAILED: boom")
+
+    def test_update_branch(self):
+        fake = FakeGh()
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.update_branch(REPO, "7"), "branch updated")
+        self.assertEqual(fake.calls[0][0], ("pr", "update-branch", "7", "-R", REPO))
+        with mock.patch.object(ca, "gh", FakeGh(fail=["update-branch"])):
+            self.assertEqual(ca.update_branch(REPO, "7"), "update branch FAILED: boom")
+
+    def test_row_values(self):
+        pr = {"isDraft": False, "autoMergeRequest": None, "author": {"login": "octocat"}}
+        self.assertEqual(ca.row_values(pr, None), ("—", "octocat", ""))
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={}), "👍")[2], "")  # gh's empty value: not queued
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "queued")
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "don't merge")[2], "")
+        self.assertEqual(ca.row_values(dict(pr, isDraft=True, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "draft")
+        self.assertEqual(ca.row_values(dict(pr, author=None), "👍")[1], "")  # a deleted account
 
     def test_window_marks_and_clears_without_merging(self):
         try:

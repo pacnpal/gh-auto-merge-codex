@@ -49,9 +49,20 @@ work too).
 - **Auto-merge**: untick it to watch without merging. Conflict comments are still posted.
 - **Request Codex review**: posts an `@codex review` comment on each selected PR.
 - **Don't merge / Allow merge**: adds or removes the `do-not-merge` label on each selected PR (see [Don't merge](#dont-merge)).
+- **Right-click a PR** (or Control-click): Open in browser, Copy link, Merge now, Don't merge, Allow merge, Update branch, and Request Codex review. These act on every selected PR. Double-click a PR to open it in the browser.
+- **Right-click a repo**: Open in browser, Copy link, Refresh (without merging), and Remove repo.
+
+**Merge now** asks first, then squash-merges the selected PRs without waiting for
+Codex, even with Auto-merge unticked. It's limited to the commit shown, so GitHub
+refuses it if someone has pushed since. It skips PRs showing `don't merge` or
+`merge conflict`, and it uses `--admin` only when the window's mode is Admin.
+Otherwise it behaves like Force, so branch protection still applies.
+
+**Update branch** merges the base branch into the PR. That's a new commit, so
+Codex's go-ahead no longer counts until it reviews again.
 - **Poll now**: poll immediately.
 
-The tree lists each repo's open PRs and Codex's verdict on each: `👍`,
+The tree lists each repo's open PRs with their author and state (`draft`, or `queued` if auto-merge is on), and Codex's verdict on each: `👍`,
 `no major issues`, `👀` (Codex is reviewing), `merge conflict`, `don't merge`, `—` (none yet), or `?` (lookup failed). A newly added repo is
 shown right away. Merging starts on the next poll.
 
@@ -145,9 +156,9 @@ the next interval.
 
 A PR with the `do-not-merge` label (any case) is never merged, in any mode, even
 with Codex's go-ahead. Because the mark is a label on GitHub, it applies to
-`--headless` runs and survives restarts. Set it with the window's **Don't merge**
-button, which creates the label if the repo doesn't have it, or from GitHub's
-web UI. Removing the label makes the PR eligible again on the next poll.
+`--headless` runs and survives restarts. Set it from the window's right-click
+menu or **Don't merge** button, which create the label if the repo doesn't have
+it, or from GitHub's web UI. Removing the label makes the PR eligible again on the next poll.
 
 - Marking a PR that's already queued with `--auto` also cancels the queued
   auto-merge, which GitHub would otherwise finish on its own. The window does
