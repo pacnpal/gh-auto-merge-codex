@@ -18,6 +18,8 @@ on the PR through pushes. If neither timestamp exists, nothing merges. A check
 suite added after Codex's go-ahead (say, a re-triggered workflow) also voids
 it. Request a new Codex review to get a fresh one.
 
+A PR labeled `do-not-merge` is left alone (see [Don't merge](#dont-merge)).
+
 ## Requirements
 
 Python 3 with tkinter (the python.org macOS installer includes it), plus
@@ -46,10 +48,11 @@ work too).
 - **every N s**: the polling interval.
 - **Auto-merge**: untick it to watch without merging. Conflict comments are still posted.
 - **Request Codex review**: posts an `@codex review` comment on each selected PR.
+- **Don't merge / Allow merge**: adds or removes the `do-not-merge` label on each selected PR (see [Don't merge](#dont-merge)).
 - **Poll now**: poll immediately.
 
 The tree lists each repo's open PRs and Codex's verdict on each: `👍`,
-`no major issues`, `👀` (Codex is reviewing), `merge conflict`, `—` (none yet), or `?` (lookup failed). A newly added repo is
+`no major issues`, `👀` (Codex is reviewing), `merge conflict`, `don't merge`, `—` (none yet), or `?` (lookup failed). A newly added repo is
 shown right away. Merging starts on the next poll.
 
 The window saves its repo list, merge mode, interval, Auto-merge setting, and
@@ -131,11 +134,30 @@ The two are mutually exclusive; the last one wins (`--admin --force` runs as
 > [!NOTE]
 > On the fallback, `--force`, and `--admin` paths the merge happens
 > **immediately**, not after CI. With `--admin` Codex's go-ahead is the *only*
-> gate: PRs merge with CI red, CI still running, or other reviews outstanding.
+> gate, apart from the `do-not-merge` label: PRs merge with CI red, CI still
+> running, or other reviews outstanding.
 
 Runs until you stop it. Everything is logged with timestamps.
 If listing PRs or reading Codex's reactions or comments fails, it logs the failure and retries on
 the next interval.
+
+### Don't merge
+
+A PR with the `do-not-merge` label (any case) is never merged, in any mode, even
+with Codex's go-ahead. Because the mark is a label on GitHub, it applies to
+`--headless` runs and survives restarts. Set it with the window's **Don't merge**
+button, which creates the label if the repo doesn't have it, or from GitHub's
+web UI. Removing the label makes the PR eligible again on the next poll.
+
+- Marking a PR that's already queued with `--auto` also cancels the queued
+  auto-merge, which GitHub would otherwise finish on its own. The window does
+  this right away. A label set anywhere else takes effect on the next poll, so a
+  queued PR whose checks pass before then can still merge.
+- Labels are re-read right before each merge. If that lookup fails, the PR isn't
+  merged and the next poll retries.
+- A marked PR is otherwise left alone: its Codex verdict isn't looked up, and
+  it gets no merge conflict comment.
+- A PR that has already entered a merge queue stays there. Remove it on GitHub.
 
 ## Check
 
