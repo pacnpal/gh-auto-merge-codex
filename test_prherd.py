@@ -3,6 +3,7 @@ import os
 import pathlib
 import subprocess
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -63,6 +64,19 @@ class FakeGh:
 
     def comments_posted(self):
         return [args[-1] for args, _ in self.calls if args[:2] == ("pr", "comment")]
+
+
+class StatefulGh(FakeGh):
+    """A FakeGh whose label and auto-merge change as they're acted on, as GitHub's would."""
+
+    def __call__(self, *args, cwd=None):
+        if "POST" in args:
+            self.labels = self.late_labels = ["do-not-merge"]
+        elif "DELETE" in args:
+            self.labels = self.late_labels = []
+        elif "--disable-auto" in args:
+            self.auto = None
+        return super().__call__(*args, cwd=cwd)
 
 
 def run(fake, mode=""):
@@ -168,6 +182,48 @@ class Test(unittest.TestCase):
             self.assertEqual(ca.mark(REPO, "7", True), "marked don't merge FAILED: boom")
         with mock.patch.object(ca, "gh", FakeGh(fail=["DELETE"])):
             self.assertEqual(ca.mark(REPO, "7", False), "cleared don't merge FAILED: boom")
+
+    def test_window_marks_and_clears_without_merging(self):
+        try:
+            import tkinter as tk
+            from tkinter import ttk
+            tk.Tk().destroy()
+        except Exception as e:  # no tkinter, or tk.TclError with no display
+            self.skipTest(f"no window available: {e}")
+        fake = StatefulGh(reactions=THUMBS, auto={"enabledAt": AFTER})
+        row = f"{REPO}#7"
+
+        def drive(root, *_):  # stands in for mainloop, and pumps it
+            def widgets(parent):
+                yield parent
+                for child in parent.winfo_children():
+                    yield from widgets(child)
+
+            def wait_for(verdict):
+                deadline = time.time() + 10
+                while not (tree.exists(row) and tree.set(row, "codex") == verdict):
+                    self.assertLess(time.time(), deadline, f"row never showed {verdict}")
+                    root.update()
+                    time.sleep(0.01)
+
+            found = list(widgets(root))
+            tree = next(w for w in found if isinstance(w, ttk.Treeview))
+            buttons = {w.cget("text"): w for w in found if isinstance(w, ttk.Button)}
+            wait_for("👍")
+            tree.selection_set(row)
+            buttons["Don't merge"].invoke()
+            wait_for("don't merge")  # refreshed right away, with no tick: the interval is an hour
+            self.assertIsNone(fake.auto)
+            buttons["Allow merge"].invoke()
+            wait_for("👍")
+            root.destroy()
+
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"), \
+                mock.patch.object(ca, "gh", fake), mock.patch.object(tk.Misc, "mainloop", drive):
+            ca.gui(["octo/direct-repo"], None, 3600)
+        # Cancelling the queued auto-merge is the only `gh pr merge`: neither refresh started one.
+        self.assertEqual(fake.merges(), [("pr", "merge", "7", "-R", REPO, "--disable-auto")])
+        self.assertEqual(fake.labels, [])
 
     def test_merge_mode_is_asked_at_merge_time(self):
         # GUI: repo removed or Auto-merge unticked while this poll was running.
