@@ -121,7 +121,7 @@ def merge(repo, pr, mode):
     # The poll's list can be a while old by now, and a merge can't be taken back.
     try:
         if dont_merge(gh_json("pr", "view", str(pr["number"]), "-R", repo, "--json", "labels")):
-            return "marked don't merge since this poll started; not merging"
+            return "marked don't merge; not merging"
     except (RuntimeError, ValueError) as e:
         return f"failed to re-check labels; not merging, retrying ({e})"
     args = ["pr", "merge", str(pr["number"]), "-R", repo, "--squash",
@@ -164,6 +164,17 @@ def mark(repo, number, dont):
     return done if not r.returncode else f"{done} FAILED: {output(r)}"
 
 
+def browse(repo, number=None):
+    """Open a PR, or the repo if number is None, in the browser."""
+    r = gh("browse", *([number] if number else []), "-R", repo)
+    return "opened in browser" if not r.returncode else f"open in browser FAILED: {output(r)}"
+
+
+def update_branch(repo, number):
+    r = gh("pr", "update-branch", str(number), "-R", repo)
+    return "branch updated" if not r.returncode else f"update branch FAILED: {output(r)}"
+
+
 def cancel_auto_merge(repo, pr):
     r = gh("pr", "merge", str(pr["number"]), "-R", repo, "--disable-auto")
     return "cancelled queued auto-merge" if not r.returncode else f"cancelling auto-merge FAILED: {output(r)}"
@@ -197,7 +208,7 @@ def poll(repo, log, merge_mode):
     try:
         # shortcut: PRs past the 1000th open one are never seen; page through the API if a repo gets there.
         prs = gh_json("pr", "list", "-R", repo, "--state", "open", "--limit", "1000",
-                      "--json", "number,title,headRefOid,mergeable,baseRefName,labels,autoMergeRequest")
+                      "--json", "number,title,headRefOid,mergeable,baseRefName,labels,autoMergeRequest,isDraft,author")
     except (RuntimeError, ValueError) as e:
         log(f"{repo}: failed to list open PRs; retrying ({e})")
         return None
@@ -257,6 +268,12 @@ def load_settings():
     }
 
 
+def row_values(pr, v):
+    """The tree's columns for a PR. A marked PR's auto-merge is cancelled during the poll, so it isn't "queued"."""
+    state = "draft" if pr["isDraft"] else "queued" if pr["autoMergeRequest"] and v != "don't merge" else ""
+    return v or "—", (pr["author"] or {}).get("login", ""), state
+
+
 def save_settings(settings):
     os.makedirs(os.path.dirname(CONFIG), exist_ok=True)
     tmp = f"{CONFIG}.{os.getpid()}.tmp"  # per process: two open windows mustn't share one tmp file
@@ -280,7 +297,7 @@ def watch(repos, mode, interval):
 
 def gui(targets, mode, interval):
     import tkinter as tk
-    from tkinter import ttk
+    from tkinter import messagebox, ttk
 
     saved = load_settings()
     mode = saved["mode"] if mode is None else mode  # a CLI flag wins for this run
@@ -291,6 +308,7 @@ def gui(targets, mode, interval):
         root.geometry(saved["geometry"])
     events = queue.Queue()  # worker threads never touch tk; they post here
     repos = []
+    prs = {}  # tree row -> its PR as of the last poll
     busy = False
     mode_var = tk.StringVar(value=mode)
     interval_var = tk.IntVar(value=interval)
@@ -356,16 +374,51 @@ def gui(targets, mode, interval):
                 repo, number = iid.rsplit("#", 1)
                 bg(lambda repo=repo, number=number: log(f"{repo}#{number}: {request_review(repo, number)}"))
 
-    def mark_all(selected, dont):
-        for repo, number in selected:
-            log(f"{repo}#{number}: {mark(repo, number, dont)}")
-        for repo in {repo for repo, _ in selected}:
-            refresh(repo)  # updates the tree and cancels a queued auto-merge without waiting for a tick
+    def selected_prs():
+        return [iid for iid in tree.selection() if "#" in iid]
+
+    def selected_repos():
+        return [iid for iid in tree.selection() if "#" not in iid]
+
+    def act_on(iids, action):
+        """action(repo, number) for each PR row, off the Tk thread; then update their repos."""
+        def run():
+            for iid in iids:
+                repo, number = iid.rsplit("#", 1)
+                log(f"{iid}: {action(repo, number)}")
+            for repo in {iid.rsplit("#", 1)[0] for iid in iids}:
+                refresh(repo)  # also cancels a queued auto-merge without waiting for a tick
+        if iids:
+            bg(run)
 
     def set_dont_merge(dont):
-        selected = [iid.rsplit("#", 1) for iid in tree.selection() if "#" in iid]
-        if selected:
-            bg(mark_all, selected, dont)
+        act_on(selected_prs(), lambda repo, number: mark(repo, number, dont))
+
+    def mergeable_now():
+        return [iid for iid in selected_prs() if tree.set(iid, "codex") not in ("don't merge", "merge conflict")]
+
+    def merge_now():
+        # The PRs as shown when asked, so a push after that makes GitHub refuse (--match-head-commit).
+        chosen = {iid: prs[iid] for iid in mergeable_now()}
+        lines = [f"#{pr['number']} {pr['title']} ({tree.set(iid, 'codex')})" for iid, pr in chosen.items()]
+        mode = "admin" if live["mode"] == "admin" else "force"
+        note = "This bypasses branch protection." if mode == "admin" else "Branch protection still applies."
+        if messagebox.askyesno("Merge now?", "Squash-merge without waiting for Codex?\n\n" + "\n".join(lines) + f"\n\n{note}",
+                               icon="warning", default="no", parent=root):
+            act_on(list(chosen), lambda repo, number: merge(repo, chosen[f"{repo}#{number}"], mode))
+
+    def open_selected():
+        for iid in tree.selection():
+            repo, _, number = iid.partition("#")
+            bg(lambda iid=iid, repo=repo, number=number: log(f"{iid}: {browse(repo, number)}"))
+
+    def copy_links():
+        root.clipboard_clear()
+        root.clipboard_append("\n".join(f"https://{iid.replace('#', '/pull/')}" for iid in tree.selection()))
+
+    def refresh_selected():
+        for repo in selected_repos():
+            bg(refresh, repo)
 
     def poll_all(snapshot):
         try:
@@ -410,8 +463,9 @@ def gui(targets, mode, interval):
                 selected = tree.selection()
                 tree.delete(*tree.get_children(repo))
                 for pr, v in rows:
-                    tree.insert(repo, "end", iid=f"{repo}#{pr['number']}",
-                                text=f"#{pr['number']} {pr['title']}", values=(v or "—",))
+                    iid = f"{repo}#{pr['number']}"
+                    prs[iid] = pr
+                    tree.insert(repo, "end", iid=iid, text=f"#{pr['number']} {pr['title']}", values=row_values(pr, v))
                 tree.selection_set([i for i in selected if tree.exists(i)])
             elif kind == "done":
                 busy = False
@@ -434,11 +488,15 @@ def gui(targets, mode, interval):
     ttk.Checkbutton(bar, text="Auto-merge", variable=merging,
                     command=lambda: control(merging=merging.get())).pack(side="left", padx=6)
 
-    tree = ttk.Treeview(root, columns=("codex",), height=12)
+    tree = ttk.Treeview(root, columns=("codex", "author", "state"), height=12)
     tree.heading("#0", text="Repo / pull request", anchor="w")
     tree.heading("codex", text="Codex", anchor="w")
-    tree.column("#0", width=560)
-    tree.column("codex", width=140)
+    tree.heading("author", text="Author", anchor="w")
+    tree.heading("state", text="State", anchor="w")
+    tree.column("#0", width=440)
+    tree.column("codex", width=130)
+    tree.column("author", width=120)
+    tree.column("state", width=70)
     tree.pack(fill="both", expand=True, padx=6)
 
     actions = ttk.Frame(root, padding=6)
@@ -447,6 +505,47 @@ def gui(targets, mode, interval):
     ttk.Button(actions, text="Don't merge", command=lambda: set_dont_merge(True)).pack(side="left")
     ttk.Button(actions, text="Allow merge", command=lambda: set_dont_merge(False)).pack(side="left")
     ttk.Button(actions, text="Poll now", command=poll_now).pack(side="left")
+
+    pr_menu = tk.Menu(root, tearoff=False)
+    pr_menu.add_command(label="Open in browser", command=open_selected)
+    pr_menu.add_command(label="Copy link", command=copy_links)
+    pr_menu.add_separator()
+    pr_menu.add_command(label="Merge now…", command=merge_now)
+    pr_menu.add_command(label="Don't merge", command=lambda: set_dont_merge(True))
+    pr_menu.add_command(label="Allow merge", command=lambda: set_dont_merge(False))
+    pr_menu.add_separator()
+    pr_menu.add_command(label="Update branch", command=lambda: act_on(selected_prs(), update_branch))
+    pr_menu.add_command(label="Request Codex review", command=ask_codex)
+
+    repo_menu = tk.Menu(root, tearoff=False)
+    repo_menu.add_command(label="Open in browser", command=open_selected)
+    repo_menu.add_command(label="Copy link", command=copy_links)
+    repo_menu.add_command(label="Refresh", command=refresh_selected)
+    repo_menu.add_separator()
+    repo_menu.add_command(label="Remove repo", command=remove)
+
+    def context_menu(event):
+        row = tree.identify_row(event.y)
+        if not row:
+            return None
+        if row not in tree.selection():
+            tree.selection_set(row)
+        if "#" not in row:
+            repo_menu.tk_popup(event.x_root, event.y_root)
+            return "break"
+        marked = [tree.set(iid, "codex") == "don't merge" for iid in selected_prs()]
+        pr_menu.entryconfigure("Merge now…", state="normal" if mergeable_now() else "disabled")
+        pr_menu.entryconfigure("Don't merge", state="disabled" if all(marked) else "normal")
+        pr_menu.entryconfigure("Allow merge", state="normal" if any(marked) else "disabled")
+        pr_menu.tk_popup(event.x_root, event.y_root)
+        return "break"  # else Control-click also toggles the row's selection
+
+    # A repo row keeps double-click for expanding and collapsing.
+    tree.bind("<Double-Button-1>", lambda event: open_selected() if "#" in tree.identify_row(event.y) else None)
+
+    # Right-click is Button-3, except on macOS Tk 8.6, which calls it Button-2.
+    for gesture in ("<Button-2>", "<Button-3>", "<Control-Button-1>"):
+        tree.bind(gesture, context_menu)
 
     logbox = tk.Text(root, height=12, state="disabled", wrap="word")
     logbox.pack(fill="both", expand=True, padx=6, pady=(0, 6))
