@@ -440,6 +440,425 @@ class Test(unittest.TestCase):
         self.assertEqual(rows[0][1], "👍")
         self.assertEqual((len(fake.merges()), fake.comments_posted()), (1, []))
 
+    def answering(self, answers):
+        """A gh for calls FakeGh has no answer to: {words in the call: (exit code, output)}, first match wins."""
+        def fake(*args, cwd=None):
+            fake.calls.append(args)
+            code, out = next((a for words, a in answers.items() if words in " ".join(args)), (0, ""))
+            return subprocess.CompletedProcess(args, code, out, "")
+
+        fake.calls = []
+        return fake
+
+    def test_verdict_detail_times(self):
+        pr, mid = {"number": 7, "headRefOid": HEAD}, "2026-10-26T11:20:00Z"  # mid: after the push, before AFTER
+
+        def detail(**gh):
+            with mock.patch.object(ca, "gh", FakeGh(**gh)):
+                d = ca.verdict_detail(REPO, pr)
+                self.assertEqual(ca.verdict(REPO, pr), d["verdict"])
+            return d
+
+        eyes = dict(THUMBS[0], content="eyes", created_at=mid)
+        self.assertEqual(detail(reactions=THUMBS), {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER,
+                                                    "reviewing_at": None})
+        self.assertEqual(detail(reactions=[eyes, *THUMBS]), {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER,
+                                                             "reviewing_at": mid})
+        # The receipt that counted gives the time, not an earlier one for another commit.
+        self.assertEqual(detail(reactions=[eyes], comments=[receipt("0123456789", at=mid), receipt()]),
+                         {"verdict": "no major issues", "pushed": PUSHED, "cleared_at": AFTER, "reviewing_at": mid})
+        self.assertEqual(detail(reactions=[eyes]), {"verdict": "👀", "pushed": PUSHED, "cleared_at": None,
+                                                    "reviewing_at": mid})
+        # Signals from before this head arrived give no times, as they give no verdict.
+        stale = [dict(THUMBS[0], created_at=BEFORE), dict(eyes, created_at=BEFORE)]
+        self.assertEqual(detail(reactions=stale, comments=[receipt(at=BEFORE)]),
+                         {"verdict": None, "pushed": PUSHED, "cleared_at": None, "reviewing_at": None})
+        self.assertEqual(detail(reactions=THUMBS, comments=[receipt()], suites=()),
+                         {"verdict": None, "pushed": None, "cleared_at": None, "reviewing_at": None})
+
+    def test_poll_stores_details_for_looked_up_prs(self):
+        held = {"number": 8, "labels": [{"name": "do-not-merge"}]}
+        gh = lambda: FakeGh(reactions=THUMBS, more=[held, {"number": 9, "mergeable": "CONFLICTING"}])
+        plain, plain_log = run(gh())
+        details, logs = {}, []
+        with mock.patch.object(ca, "gh", gh()):
+            rows = ca.poll(REPO, logs.append, lambda: "", details)
+        self.assertEqual((rows, "\n".join(logs)), (plain, plain_log))  # asking for details changes nothing else
+        self.assertEqual(details, {7: {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER, "reviewing_at": None}})
+        details = {}
+        with mock.patch.object(ca, "gh", FakeGh(fail=["api"])):
+            rows = ca.poll(REPO, lambda _: None, lambda: None, details)
+        self.assertEqual((rows[0][1], details), ("?", {}))
+        details = {}
+        with mock.patch.object(ca, "gh", FakeGh()):  # looked up, with nothing found: still stored
+            ca.poll(REPO, lambda _: None, lambda: None, details)
+        self.assertEqual(details, {7: {"verdict": None, "pushed": PUSHED, "cleared_at": None, "reviewing_at": None}})
+
+    def test_readiness_for_every_verdict(self):
+        pr = {"number": 7, "headRefOid": HEAD, "baseRefName": "main", "mergeable": "MERGEABLE", "isDraft": False,
+              "autoMergeRequest": None}
+        go = {"👍": ("ok", "Codex go-ahead on the current head", "Newer than bfd4fae"),
+              "no major issues": ("ok", "Codex go-ahead on the current head", "Receipt names bfd4fae"),
+              "👀": ("warn", "Codex is reviewing", "Its verdict lands on the next poll"),
+              "merge conflict": ("warn", "Not checked while conflicting", "Resolve the conflict first"),
+              "?": ("err", "Couldn't read Codex's verdict", "GitHub returned an error; retrying"),
+              "don't merge": ("warn", "Not checked while held", "Allow merge to check again"),
+              None: ("warn", "No go-ahead yet", "Request a Codex review to get one")}
+        self.assertEqual(set(go), set(ca.VERDICTS))
+        tones = {v["tone"] for v in ca.VERDICTS.values()}
+        for v, first in go.items():
+            items = ca.readiness(pr, v)
+            self.assertEqual((len(items), items[0]), (5, first), v)
+            self.assertLessEqual({tone for tone, _, _ in items}, tones)
+            conflict, label, draft, queue = items[1:]
+            clear = ("ok", "No conflicts with main", "Mergeable as of the last poll")
+            self.assertEqual(conflict, ("bad", "Conflicts with main", "Commented once on bfd4fae")
+                             if v == "merge conflict" else clear)
+            self.assertEqual(label, ("bad", "Labeled do-not-merge", "Allow merge to release it")
+                             if v == "don't merge" else ("ok", "Not labeled do-not-merge", ""))
+            self.assertEqual(draft, ("ok", "Ready for review", "Not a draft"))
+            self.assertEqual(queue[:2], ("warn", "Not queued yet") if v in ("👍", "no major issues")
+                             else ("none", "Not queued"))
+        self.assertEqual(ca.readiness(dict(pr, isDraft=True), None)[3],
+                         ("warn", "Draft pull request", "Mark ready for review on GitHub"))
+        queued = dict(pr, autoMergeRequest={"enabledAt": AFTER})
+        self.assertEqual(ca.readiness(queued, "👍")[4][:2], ("ok", "Auto-merge queued"))
+        self.assertEqual(ca.readiness(queued, "don't merge")[4][:2], ("none", "Not queued"))  # the poll cancels it
+        self.assertEqual(ca.readiness(dict(pr, autoMergeRequest={}), "👍")[4][:2], ("warn", "Not queued yet"))
+        # Held and conflicting, and GitHub still working out whether it conflicts.
+        self.assertEqual(ca.readiness(dict(pr, mergeable="CONFLICTING"), "don't merge")[1],
+                         ("bad", "Conflicts with main", "Not commented on while held"))
+        self.assertEqual(ca.readiness(dict(pr, mergeable="UNKNOWN"), "👍")[1][:2],
+                         ("warn", "Checking for conflicts with main"))
+        self.assertEqual(len(ca.readiness({"number": 7}, None)), 5)  # a PR with no other fields
+
+    def test_headline_for_every_verdict(self):
+        pr = {"number": 7, "headRefOid": HEAD, "isDraft": False, "autoMergeRequest": None}
+        queued, draft = dict(pr, autoMergeRequest={"enabledAt": AFTER}), dict(pr, isDraft=True)
+        titles = {"don't merge": ("hold", "Held — won't merge"),
+                  "merge conflict": ("bad", "Blocked by a merge conflict"),
+                  "?": ("err", "Couldn't read Codex's verdict"), "👀": ("warn", "Codex is reviewing"),
+                  None: ("none", "Waiting for Codex"), "👍": ("ok", "Cleared — merges on the next poll"),
+                  "no major issues": ("ok", "Cleared — merges on the next poll")}
+        self.assertEqual(set(titles), set(ca.VERDICTS))
+        for v, expected in titles.items():
+            tone, title, detail = ca.headline(pr, v)
+            self.assertEqual((tone, title), expected)
+            self.assertEqual(tone, ca.VERDICTS[v]["tone"])  # the card matches the row's pill
+            self.assertTrue(detail)
+        for v in ("👍", "no major issues"):
+            self.assertEqual(ca.headline(queued, v)[:2], ("ok", "Cleared — queued to merge"))
+            self.assertIn("queued at bfd4fae", ca.headline(queued, v)[2])
+            self.assertEqual(ca.headline(pr, v, merging=False)[:2], ("ok", "Cleared — watching only"))
+            # Queued on GitHub merges whatever the switch says; a draft merges nowhere.
+            self.assertEqual(ca.headline(queued, v, merging=False)[1], "Cleared — queued to merge")
+            self.assertEqual(ca.headline(dict(queued, isDraft=True), v)[:2], ("warn", "Draft — not merging yet"))
+        self.assertEqual(ca.headline(draft, None)[:2], ("none", "Draft — not merging yet"))
+        self.assertIn("No go-ahead newer than bfd4fae", ca.headline(pr, None)[2])
+        self.assertNotEqual(ca.headline(pr, "👀")[2], ca.headline(pr, "👀", merging=False)[2])
+        # A held or conflicting PR says so, queued or draft or not.
+        self.assertEqual(ca.headline(dict(queued, isDraft=True), "don't merge")[1], "Held — won't merge")
+        self.assertEqual(ca.headline(queued, "merge conflict")[1], "Blocked by a merge conflict")
+        self.assertEqual(ca.headline({"number": 7}, "👍")[1], "Cleared — merges on the next poll")
+
+    def test_timeline_is_in_time_order(self):
+        mid, late = "2026-10-26T11:20:00Z", "2026-10-26T11:30:00Z"
+        pr = {"number": 7, "headRefOid": HEAD, "autoMergeRequest": {"enabledAt": late}}
+        detail = {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER, "reviewing_at": mid}
+        self.assertEqual(ca.timeline(pr, "👍", detail), [
+            (PUSHED, "none", "Head bfd4fae pushed"), (mid, "warn", "Codex started reviewing"),
+            (AFTER, "ok", "Codex gave a thumbs-up"), (late, "acc", "Auto-merge queued behind checks")])
+        self.assertEqual(ca.timeline(pr, "no major issues", dict(detail, verdict="no major issues"))[2],
+                         (AFTER, "ok", "Codex: no major issues on bfd4fae"))
+        # Auto-merge left queued from an earlier head comes first: order is by time, not by kind.
+        early = dict(pr, autoMergeRequest={"enabledAt": BEFORE})
+        reviewing = ca.timeline(early, "👀", dict(detail, verdict="👀", cleared_at=None))
+        self.assertEqual([text for _, _, text in reviewing],
+                         ["Auto-merge queued behind checks", "Head bfd4fae pushed", "Codex started reviewing"])
+        # What isn't known is left out: no detail for a held, conflicting or failed PR.
+        self.assertEqual(ca.timeline(pr, "don't merge", None), [(late, "acc", "Auto-merge queued behind checks")])
+        self.assertEqual(ca.timeline({"number": 7, "headRefOid": HEAD, "autoMergeRequest": None}, "?", None), [])
+        self.assertEqual(ca.timeline({"number": 7}, None, {"verdict": None, "pushed": None, "cleared_at": None,
+                                                           "reviewing_at": None}), [])
+
+    def test_gh_version(self):
+        real = "gh version 2.63.2 (2025-01-10)\nhttps://github.com/cli/cli/releases/tag/v2.63.2\n"
+        self.assertEqual(ca.gh_version(real), (2, 63, 2))
+        self.assertEqual(ca.gh_version("gh version 2.62.0 (demo)"), (2, 62, 0))
+        self.assertEqual(ca.gh_version("gh version 2.48"), (2, 48))
+        self.assertEqual(ca.gh_version("gh version 2.90.0-rc.1 (2026-01-01)"), (2, 90, 0))
+        for junk in ("", None, "git version 2.47.0", "gh: command not found"):
+            self.assertIsNone(ca.gh_version(junk))
+        self.assertGreaterEqual((2, 48, 0), ca.GH_MIN)
+        self.assertLess((2, 47, 9), ca.GH_MIN)
+
+    def test_setup_checks(self):
+        signed_in = "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n"
+
+        def checks(answers):
+            fake = self.answering(answers)
+            with mock.patch.object(ca, "gh", fake):
+                return ca.setup_checks(), fake.calls
+
+        result, calls = checks({"--version": (0, "gh version 2.63.2 (2025-01-10)\n"), "auth status": (0, signed_in)})
+        self.assertEqual(result, [(True, "GitHub CLI installed", "gh 2.63.2"), (True, "Signed in", "octocat")])
+        self.assertEqual(calls, [("--version",), ("auth", "status")])
+        result, _ = checks({"--version": (0, "gh version 2.48.0 (2024-04-17)\n"), "auth status": (0, "")})
+        self.assertEqual(result, [(True, "GitHub CLI installed", "gh 2.48.0"), (True, "Signed in", "")])
+        result, _ = checks({"--version": (0, "gh version 2.47.0 (2024-04-03)\n"),
+                            "auth status": (1, "You are not logged into any GitHub hosts.")})
+        self.assertEqual(result, [(False, "GitHub CLI installed", "gh 2.47.0 is too old; prherd needs 2.48 or newer"),
+                                  (False, "Signed in", "run `gh auth login` in a terminal")])
+        result, _ = checks({"--version": (0, "something else"), "auth status": (0, signed_in)})
+        self.assertEqual(result[0], (False, "GitHub CLI installed", "couldn't read gh's version"))
+        result, _ = checks({"--version": (1, "gh version 2.63.2")})  # e.g. timed out
+        self.assertFalse(result[0][0])
+        missing = [(False, "GitHub CLI installed", "gh not found; install it from cli.github.com"),
+                   (False, "Signed in", "needs gh")]
+        with mock.patch.object(ca, "gh", side_effect=FileNotFoundError(2, "No such file or directory", "gh")):
+            self.assertEqual(ca.setup_checks(), missing)
+        with mock.patch.object(ca, "GH", os.path.join(tempfile.gettempdir(), "no-such-dir", "gh")):  # the real helper
+            self.assertEqual(ca.setup_checks(), missing)
+
+    def test_pr_state(self):
+        merged = {"state": "MERGED", "mergedAt": AFTER, "title": "t", "number": 7}
+        fake = self.answering({"pr view": (0, json.dumps(merged))})
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.pr_state(REPO, 7), merged)
+        self.assertEqual(fake.calls, [("pr", "view", "7", "-R", REPO, "--json", "state,mergedAt,title,number")])
+        for broken in ((1, "no pull requests found"), (0, "not json"), (0, "[]")):
+            with mock.patch.object(ca, "gh", self.answering({"pr view": broken})):
+                self.assertIsNone(ca.pr_state(REPO, 7))
+        with mock.patch.object(ca, "gh", side_effect=FileNotFoundError("gh")):
+            self.assertIsNone(ca.pr_state(REPO, 7))
+
+    def notice_prs(self, verdicts):
+        """{number: verdict} -> poll()-shaped rows, and the same as a `before`."""
+        rows = [({"number": n, "title": f"title {n}"}, v) for n, v in verdicts.items()]
+        return rows, {pr["number"]: (pr, v) for pr, v in rows}
+
+    def test_notices_nothing_on_first_poll_or_first_sight(self):
+        rows, seen = self.notice_prs({7: "👍", 8: "merge conflict", 9: "?"})
+        no_state = mock.Mock(side_effect=AssertionError("nothing left the list"))
+        streaks = {}
+        self.assertEqual(ca.notices(REPO, None, rows, streaks, no_state), [])  # launch: no burst
+        self.assertEqual(streaks, {(REPO, 9): 1})  # but the failure counts towards two in a row
+        self.assertEqual(ca.notices(REPO, {}, rows, {}, no_state), [])  # PRs opened since the last poll
+        self.assertEqual(ca.notices(REPO, seen, rows, {}, no_state), [])  # nothing changed
+        self.assertEqual(ca.notices(REPO, seen, None, {}, no_state), [])  # the listing failed: not "all gone"
+
+    def test_notices_conflict_and_cleared(self):
+        no_state = mock.Mock(side_effect=AssertionError("nothing left the list"))
+        _, before = self.notice_prs({7: None, 8: "👀", 9: "👍", 10: "merge conflict", 11: "don't merge", 12: "?"})
+        rows, _ = self.notice_prs({7: "merge conflict", 8: "👍", 9: "no major issues", 10: "merge conflict",
+                                   11: "no major issues", 12: "merge conflict"})
+        self.assertEqual(ca.notices(REPO, before, rows, {}, no_state), [
+            ("conflict", "Merge conflict on #7", "octo/direct-repo · title 7"),
+            ("cleared", "Codex cleared #8", "octo/direct-repo · title 8"),  # 9 and 10 were already there
+            ("cleared", "Codex cleared #11", "octo/direct-repo · title 11"),
+            ("conflict", "Merge conflict on #12", "octo/direct-repo · title 12")])
+        # Leaving those states is quiet.
+        rows, _ = self.notice_prs({7: None, 8: "👀", 9: "don't merge", 10: None, 11: "👀", 12: None})
+        _, before = self.notice_prs({7: "merge conflict", 8: "👍", 9: "👍", 10: "merge conflict", 11: "👍",
+                                     12: "👍"})
+        self.assertEqual(ca.notices(REPO, before, rows, {}, no_state), [])
+        # Another host is named; github.com isn't.
+        rows, _ = self.notice_prs({7: "👍"})
+        _, before = self.notice_prs({7: None})
+        self.assertEqual(ca.notices("github.example/acme/local-repo", before, rows, {}, no_state),
+                         [("cleared", "Codex cleared #7", "github.example/acme/local-repo · title 7")])
+
+    def test_notices_failed_lookup_after_two_polls_in_a_row(self):
+        failed, seen = self.notice_prs({7: "?"})
+        fine, _ = self.notice_prs({7: None})
+        streaks = {}
+        kinds = lambda rows: [kind for kind, _, _ in ca.notices(REPO, seen, rows, streaks)]
+        self.assertEqual(kinds(failed), [])  # one failure is a blip
+        self.assertEqual(ca.notices(REPO, seen, failed, streaks),
+                         [("failed", "Lookup failed for #7", "octo/direct-repo · title 7")])
+        self.assertEqual(kinds(failed), [])  # the third in a row: already said
+        self.assertEqual(streaks, {(REPO, 7): 3})
+        self.assertEqual(kinds(fine), [])
+        self.assertEqual(streaks, {})  # recovered: the count starts over
+        # Never two in a row.
+        self.assertEqual([kinds(failed), kinds(fine), kinds(failed), kinds(fine)], [[], [], [], []])
+        self.assertEqual([kinds(failed), kinds(failed)], [[], ["failed"]])
+        # Counted per repo, and dropped with a PR that leaves the list.
+        other = "github.com/octo/other"
+        self.assertEqual(ca.notices(other, seen, failed, streaks), [])
+        self.assertEqual(streaks, {(REPO, 7): 2, (other, 7): 1})
+        self.assertEqual(ca.notices(other, seen, [], streaks, lambda repo, number: None), [])
+        self.assertEqual(streaks, {(REPO, 7): 2})
+
+    def test_notices_merged_but_not_closed(self):
+        _, before = self.notice_prs({7: "👍", 8: None, 9: "👀", 10: None})
+        rows, _ = self.notice_prs({10: None})
+        states = {7: {"state": "MERGED", "mergedAt": AFTER, "title": "renamed since", "number": 7},
+                  8: {"state": "CLOSED", "mergedAt": None, "title": "title 8", "number": 8},
+                  9: None}  # the lookup failed
+        asked = []
+        state = lambda repo, number: asked.append((repo, number)) or states[number]
+        self.assertEqual(ca.notices(REPO, before, rows, {}, state),
+                         [("merged", "Merged #7", "octo/direct-repo · renamed since")])
+        self.assertEqual(asked, [(REPO, 7), (REPO, 8), (REPO, 9)])  # only the PRs that left the list
+        # By default it asks gh, and falls back on the title it last saw.
+        fake = self.answering({"pr view": (0, json.dumps({"state": "MERGED", "mergedAt": AFTER, "number": 7}))})
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.notices(REPO, {7: before[7]}, [], {}),
+                             [("merged", "Merged #7", "octo/direct-repo · title 7")])
+        self.assertEqual(fake.calls[0][:5], ("pr", "view", "7", "-R", REPO))
+
+    def test_checked_notify(self):
+        on = dict.fromkeys(ca.NOTIFY_KINDS, True)
+        self.assertEqual(ca.NOTIFY_KINDS, ("merged", "conflict", "failed", "cleared"))
+        for junk in (None, [], "no", 0, {}, {"other": False}):
+            self.assertEqual(ca.checked_notify(junk), on)
+        self.assertEqual(ca.checked_notify({"merged": False, "cleared": False, "extra": False}),
+                         dict(on, merged=False, cleared=False))
+        self.assertEqual(ca.checked_notify({"merged": 0, "conflict": "false", "failed": None}), on)  # only real bools
+
+    def test_notify_passes_text_as_arguments_on_macos(self):
+        title, body = 'Merged #7"; do shell script "id', "octo/direct-repo · $(id) `id` \\"
+        with mock.patch.object(ca.sys, "platform", "darwin"), \
+                mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as spawn:
+            self.assertIs(ca.notify(title, body), True)
+        argv = spawn.call_args.args[0]
+        # -- ends osascript's options, so a title starting with "-" is still text.
+        self.assertEqual(argv, ["/usr/bin/osascript", "-e", ca.NOTIFY_SCRIPT, "--", title, body])
+        self.assertEqual(ca.NOTIFY_SCRIPT,
+                         "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run")
+        how = spawn.call_args.kwargs
+        self.assertNotIn("shell", how)  # an argv, never a command line
+        self.assertEqual((how["close_fds"], how["creationflags"], bool(how["timeout"])), (False, ca.NO_WINDOW, True))
+
+    def test_notify_never_raises_and_says_when_it_cannot(self):
+        with mock.patch.object(ca.sys, "platform", "darwin"):
+            with mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "nope")):
+                self.assertIs(ca.notify("t", "b"), False)
+            for error in (FileNotFoundError("osascript"), subprocess.TimeoutExpired("osascript", 10),
+                          ValueError("embedded null byte")):
+                with mock.patch("subprocess.run", side_effect=error):
+                    self.assertIs(ca.notify("t", "b\0"), False)
+        for platform in ("linux", "win32"):  # no notify-send; Windows has nothing to call
+            with mock.patch.object(ca.sys, "platform", platform), mock.patch("shutil.which", return_value=None), \
+                    mock.patch("subprocess.run") as spawn:
+                self.assertIs(ca.notify("t", "b"), False)
+            spawn.assert_not_called()
+        with mock.patch.object(ca.sys, "platform", "linux"), \
+                mock.patch("shutil.which", return_value="/usr/bin/notify-send"), \
+                mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as spawn:
+            self.assertIs(ca.notify("--help", "<b>body</b>"), True)
+        self.assertEqual(spawn.call_args.args[0],
+                         ["/usr/bin/notify-send", "--app-name=prherd", "--", "--help", "<b>body</b>"])
+
+    def login_home(self, platform, **env):
+        """A throwaway home on the given platform, so no test touches the real login items."""
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        # expanduser reads HOME, or USERPROFILE when the tests themselves run on Windows.
+        for patch in (mock.patch.object(ca.sys, "platform", platform),
+                      mock.patch.dict(os.environ, {"HOME": home.name, "USERPROFILE": home.name, **env})):
+            patch.start()
+            self.addCleanup(patch.stop)
+        if "XDG_CONFIG_HOME" not in env:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        return home.name
+
+    def test_launch_command(self):
+        with mock.patch.object(ca.sys, "frozen", True, create=True), \
+                mock.patch.object(ca.sys, "executable", "/Apps/prherd"):
+            self.assertEqual(ca.launch_command(), ["/Apps/prherd"])
+        source = pathlib.Path(ca.__file__).resolve()
+        command = ca.launch_command()
+        self.assertEqual((command[0], pathlib.Path(command[1]).resolve()), (ca.sys.executable, source))
+        self.assertTrue(os.path.isabs(command[1]))
+
+    def test_login_item_on_macos(self):
+        import plistlib
+        d = self.login_home("darwin")
+        path = os.path.join(d, "Library", "LaunchAgents", "com.pacnpal.prherd.plist")
+        self.assertEqual(ca.login_item_path(), path)
+        self.assertFalse(ca.login_item_enabled())
+        self.assertEqual(ca.login_item(False), "no longer opens at login")  # already off, and no folder yet
+        with mock.patch.object(ca, "launch_command", return_value=["/Apps/pr herd/prherd", "it's \"quoted\""]):
+            self.assertEqual(ca.login_item(True), "opens at login")
+            self.assertEqual(ca.login_item(True), "opens at login")  # again: rewritten, not an error
+        self.assertTrue(ca.login_item_enabled())
+        with open(path, "rb") as f:
+            self.assertEqual(plistlib.load(f), {"Label": "com.pacnpal.prherd", "RunAtLoad": True,
+                                                "ProgramArguments": ["/Apps/pr herd/prherd", "it's \"quoted\""]})
+        self.assertEqual(ca.login_item(False), "no longer opens at login")
+        self.assertFalse(os.path.exists(path))
+        self.assertFalse(ca.login_item_enabled())
+
+    def test_login_item_on_linux(self):
+        d = self.login_home("linux")
+        path = os.path.join(d, ".config", "autostart", "prherd.desktop")
+        self.assertEqual(ca.login_item_path(), path)
+        self.assertFalse(ca.login_item_enabled())
+        with mock.patch.object(ca, "launch_command", return_value=["/usr/bin/python3", "/home/o'neil/pr herd/100%.py"]):
+            self.assertEqual(ca.login_item(True), "opens at login")
+        self.assertTrue(ca.login_item_enabled())
+        self.assertEqual(pathlib.Path(path).read_text(encoding="utf-8"),
+                         "[Desktop Entry]\nType=Application\nName=prherd\n"
+                         "Exec=\"/usr/bin/python3\" \"/home/o'neil/pr herd/100%%.py\"\nTerminal=false\n")
+        self.assertEqual(ca.login_item(False), "no longer opens at login")
+        self.assertEqual((os.path.exists(path), ca.login_item_enabled()), (False, False))
+        # The spec's two rounds of escaping: \" $ ` and \ inside the quotes, then every backslash doubled.
+        self.assertEqual(ca.desktop_exec(['a"b', "$HOME", "`id`", "c\\d"]), r'"a\\"b" "\\$HOME" "\\`id\\`" "c\\\\d"')
+
+    def test_login_item_follows_xdg_config_home(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        d = self.login_home("linux", XDG_CONFIG_HOME=os.path.join(elsewhere.name, "cfg"))
+        path = os.path.join(elsewhere.name, "cfg", "autostart", "prherd.desktop")
+        self.assertEqual(ca.login_item_path(), path)
+        self.assertEqual(ca.login_item(True), "opens at login")
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(os.listdir(d), [])  # nothing under the home's .config
+
+    def test_login_item_failure_is_reported(self):
+        d = self.login_home("darwin")
+        pathlib.Path(d, "Library").write_text("a file where the folder should be")
+        self.assertRegex(ca.login_item(True), r"^open at login FAILED: .+")
+        self.assertFalse(ca.login_item_enabled())
+        with mock.patch("os.remove", side_effect=PermissionError(13, "Permission denied")):
+            self.assertRegex(ca.login_item(False), r"^turning off open at login FAILED: .*Permission denied")
+
+    def test_login_item_on_windows(self):
+        self.login_home("win32")
+        winreg = mock.MagicMock(HKEY_CURRENT_USER="HKCU", KEY_SET_VALUE="set", REG_SZ="sz")
+        key = winreg.OpenKey.return_value.__enter__.return_value
+        with mock.patch.dict("sys.modules", winreg=winreg), \
+                mock.patch.object(ca, "launch_command", return_value=[r"C:\Program Files\prherd\prherd.exe"]):
+            self.assertIsNone(ca.login_item_path())
+            self.assertEqual(ca.login_item(True), "opens at login")
+            winreg.OpenKey.assert_called_with("HKCU", r"Software\Microsoft\Windows\CurrentVersion\Run", 0, "set")
+            winreg.SetValueEx.assert_called_once_with(key, "prherd", 0, "sz", r'"C:\Program Files\prherd\prherd.exe"')
+            self.assertTrue(ca.login_item_enabled())
+            winreg.QueryValueEx.assert_called_once_with(key, "prherd")
+            self.assertEqual(ca.login_item(False), "no longer opens at login")
+            winreg.DeleteValue.assert_called_once_with(key, "prherd")
+            winreg.DeleteValue.side_effect = FileNotFoundError(2, "not there")  # already off
+            self.assertEqual(ca.login_item(False), "no longer opens at login")
+            winreg.QueryValueEx.side_effect = FileNotFoundError(2, "not there")
+            self.assertFalse(ca.login_item_enabled())
+            winreg.OpenKey.side_effect = PermissionError(13, "Access is denied")
+            self.assertEqual(ca.login_item(True), "open at login FAILED: [Errno 13] Access is denied")
+
+    def test_demo_gh_answers_the_new_calls(self):
+        demo = str(pathlib.Path(__file__).with_name("scripts") / "demo-gh" / "gh")
+        ask = lambda *args: subprocess.run([ca.sys.executable, demo, *args], capture_output=True, text=True,
+                                           env=dict(os.environ, DEMO_GH_LOG=os.devnull))
+        self.assertGreaterEqual(ca.gh_version(ask("--version").stdout), ca.GH_MIN)
+        with mock.patch.object(ca, "gh", lambda *args, cwd=None: ask(*args)):
+            self.assertEqual(ca.setup_checks(),
+                             [(True, "GitHub CLI installed", "gh 2.62.0"), (True, "Signed in", "demo")])
+            repo = "github.com/octo-org/storefront"
+            self.assertEqual(ca.pr_state(repo, 214), {"state": "OPEN", "mergedAt": None, "number": 214,
+                                                      "title": "Checkout: remember the last shipping address"})
+            self.assertEqual(ca.pr_state(repo, 1)["state"], "MERGED")  # not in its open list
+
     def test_modes(self):
         thumbs = THUMBS
         admin, force = FakeGh(reactions=thumbs), FakeGh(reactions=thumbs)
