@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>prherd — settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ps-light,.ps-system{color-scheme:light;--page:#E7E7EB;--win:#FFFFFF;--win-border:#D9D9DF;--bar:#F6F6F8;--group:#F7F7F9;--line:#E4E4E9;--line-soft:#ECECF0;--hover:#ECECF0;--tab-on:#E4E4EA;--seg:#EEEEF2;--seg-on:#FFFFFF;--seg-shadow:0 1px 2px rgba(16,17,20,0.12),0 0 0 1px rgba(16,17,20,0.04);--field:#FFFFFF;--field-border:#DEDEE4;--text:#17181C;--text-2:#2A2D35;--text-3:#3D414C;--muted:#5A5F6B;--knob-off:#C4C6CC;--link:#4338CA;--ok-fg:#1D6B36;--ok-bg:#E5F4EA;--ok-dot:#1F9D55;--admin-bg:#FFF4E5;--admin-fg:#7A4100;--acc-bg:#EEF0FF;--acc-fg:#3730A3;--prev-a:#FFFFFF;--prev-b:#F1F1F4;--prev-c:#D9D9DF}
+.ps-dark{color-scheme:dark;--page:#0B0B0E;--win:#16171B;--win-border:#2C2D33;--bar:#131418;--group:#1C1D22;--line:#2A2B31;--line-soft:#25262C;--hover:#23242A;--tab-on:#2A2B33;--seg:#0F1013;--seg-on:#2E2F37;--seg-shadow:0 1px 2px rgba(0,0,0,0.5);--field:#111215;--field-border:#33343C;--text:#ECEDF0;--text-2:#D3D5DB;--text-3:#B4B7C0;--muted:#959AA5;--knob-off:#4A4C55;--link:#A5A8FF;--ok-fg:#7BD9A4;--ok-bg:#15301F;--ok-dot:#3FBF77;--admin-bg:#2E2210;--admin-fg:#F2C462;--acc-bg:#23244A;--acc-fg:#B4B6FF;--prev-a:#16171B;--prev-b:#23242A;--prev-c:#3A3B43}
+@media (prefers-color-scheme: dark){.ps-system{color-scheme:dark;--page:#0B0B0E;--win:#16171B;--win-border:#2C2D33;--bar:#131418;--group:#1C1D22;--line:#2A2B31;--line-soft:#25262C;--hover:#23242A;--tab-on:#2A2B33;--seg:#0F1013;--seg-on:#2E2F37;--seg-shadow:0 1px 2px rgba(0,0,0,0.5);--field:#111215;--field-border:#33343C;--text:#ECEDF0;--text-2:#D3D5DB;--text-3:#B4B7C0;--muted:#959AA5;--knob-off:#4A4C55;--link:#A5A8FF;--ok-fg:#7BD9A4;--ok-bg:#15301F;--ok-dot:#3FBF77;--admin-bg:#2E2210;--admin-fg:#F2C462;--acc-bg:#23244A;--acc-fg:#B4B6FF;--prev-a:#16171B;--prev-b:#23242A;--prev-c:#3A3B43}}
+a{color:var(--link)}
+button{font:inherit}
+input{font:inherit}
+.ps-tab:hover{background:var(--hover)}
+.ps-btn:hover{background:var(--hover)}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #6366F1;outline-offset:2px}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width: 880px; height: 640px; box-sizing: border-box; padding: 20px; background: var(--page); font-family: Inter, system-ui, sans-serif; color: var(--text); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased">
+<div style="height: 100%; display: flex; flex-direction: column; background: var(--win); border: 1px solid var(--win-border); border-radius: 12px; overflow: hidden; box-shadow: 0 24px 48px -16px rgba(16,17,20,0.3)">
+
+  <div style="background: var(--bar); border-bottom: 1px solid var(--line); padding: 10px 14px 8px">
+    <div style="display: flex; align-items: center; height: 20px">
+      <div style="display: flex; gap: 8px" aria-hidden="true">
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57; border: 1px solid #E0443E"></span>
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E; border: 1px solid #DEA123"></span>
+        <span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840; border: 1px solid #1AAB29"></span>
+      </div>
+      <span style="flex: 1; text-align: center; font-weight: 600; font-size: 13px; margin-right: 52px">{{tabTitle}}</span>
+    </div>
+    <div role="tablist" aria-label="Settings sections" style="display: flex; justify-content: center; gap: 4px; margin-top: 8px">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5">
+        <button type="button" role="tab" aria-selected="{{t.on}}" class="ps-tab" onClick="{{t.pick}}" style="display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 76px; padding: 6px 10px 5px; border: 0; border-radius: 8px; background: {{t.bg}}; color: {{t.fg}}; cursor: pointer; font-size: 11.5px; font-weight: 500">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.icon}}"></path></svg>
+          {{t.label}}
+        </button>
+      </sc-for>
+    </div>
+  </div>
+
+  <div role="tabpanel" style="flex: 1; min-height: 0; overflow: auto; padding: 22px 0 28px">
+  <div style="width: 600px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px">
+
+    <!-- General -->
+    <sc-if value="{{isGeneral}}" hint-placeholder-val="{{ true }}">
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Appearance</h2>
+        <div role="radiogroup" aria-label="Appearance" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px">
+          <sc-for list="{{themes}}" as="o" hint-placeholder-count="3">
+            <button type="button" role="radio" aria-checked="{{o.on}}" onClick="{{o.pick}}" style="display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; cursor: pointer; color: var(--text); font-size: 12.5px; font-weight: {{o.weight}}">
+              <span style="display: block; width: 100%; height: 92px; box-sizing: border-box; border-radius: 10px; overflow: hidden; box-shadow: {{o.ring}}; background: {{o.paneBg}}">
+                <span style="display: flex; height: 100%">
+                  <span style="width: 34%; background: {{o.sideBg}}; border-right: 1px solid {{o.lineCol}}; padding: 10px 8px; box-sizing: border-box; display: flex; flex-direction: column; gap: 6px">
+                    <span style="height: 6px; width: 70%; border-radius: 3px; background: {{o.barCol}}"></span>
+                    <span style="height: 6px; width: 90%; border-radius: 3px; background: {{o.barCol}}"></span>
+                    <span style="height: 6px; width: 60%; border-radius: 3px; background: {{o.barCol}}"></span>
+                  </span>
+                  <span style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 7px">
+                    <span style="height: 8px; width: 55%; border-radius: 3px; background: {{o.headCol}}"></span>
+                    <span style="height: 12px; width: 100%; border-radius: 4px; background: {{o.rowCol}}"></span>
+                    <span style="height: 12px; width: 100%; border-radius: 4px; background: {{o.rowCol}}"></span>
+                    <span style="height: 12px; width: 40%; border-radius: 999px; background: #4F46E5"></span>
+                  </span>
+                </span>
+              </span>
+              {{o.label}}
+            </button>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Polling</h2>
+        <div style="background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft)">
+            <span style="flex: 1; display: flex; flex-direction: column">
+              <label for="ps-interval" style="font-weight: 500">Poll every</label>
+              <span style="font-size: 12px; color: var(--muted)">How often prherd lists open pull requests on each repo.</span>
+            </span>
+            <span style="display: flex; align-items: center; gap: 6px">
+              <input id="ps-interval" type="number" value="60" min="1" style="width: 64px; height: 30px; box-sizing: border-box; padding: 0 8px; border: 1px solid var(--field-border); border-radius: 7px; background: var(--field); color: var(--text); font-family: 'JetBrains Mono', monospace; text-align: right">
+              <span style="color: var(--muted)">seconds</span>
+            </span>
+          </div>
+          <sc-for list="{{general}}" as="r" hint-placeholder-count="2">
+            <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px; border-bottom: 1px solid {{r.line}}">
+              <span style="flex: 1; display: flex; flex-direction: column">
+                <span style="font-weight: 500">{{r.label}}</span>
+                <span style="font-size: 12px; color: var(--muted)">{{r.help}}</span>
+              </span>
+              <button type="button" role="switch" aria-checked="{{r.on}}" aria-label="{{r.label}}" onClick="{{r.toggle}}" style="position: relative; width: 38px; height: 22px; flex: none; padding: 0; border: 0; border-radius: 11px; background: {{r.bg}}; cursor: pointer; transition: background 0.15s">
+                <span style="position: absolute; top: 2px; left: {{r.knob}}px; width: 18px; height: 18px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.25); transition: left 0.15s"></span>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Saved settings</h2>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <span style="flex: 1; display: flex; flex-direction: column">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px">~/.config/prherd.json</span>
+            <span style="font-size: 12px; color: var(--muted)">Repos, merge mode, interval, Auto-merge and window size. Saved on every change.</span>
+          </span>
+          <button type="button" class="ps-btn" style="height: 30px; padding: 0 12px; border: 1px solid var(--field-border); border-radius: 7px; background: var(--field); color: var(--text); cursor: pointer; font-weight: 500">Show in Finder</button>
+        </div>
+      </section>
+    </sc-if>
+
+    <!-- Repositories -->
+    <sc-if value="{{isRepos}}" hint-placeholder-val="{{ false }}">
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Watched repositories</h2>
+        <div style="background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <sc-for list="{{repos}}" as="r" hint-placeholder-count="4">
+            <div style="display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--line-soft)">
+              <span style="width: 26px; height: 26px; flex: none; border-radius: 7px; background: {{r.tint}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700" aria-hidden="true">{{r.mono}}</span>
+              <span style="flex: 1; display: flex; flex-direction: column">
+                <span style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px">{{r.name}}</span>
+                <span style="font-size: 12px; color: var(--muted)">{{r.note}}</span>
+              </span>
+              <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ok-fg); background: var(--ok-bg); border-radius: 999px; padding: 2px 8px"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot)"></span>Can merge</span>
+              <button type="button" aria-label="Remove {{r.name}}" onClick="{{r.remove}}" class="ps-btn" style="width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg></button>
+            </div>
+          </sc-for>
+          <form onSubmit="{{addRepo}}" style="display: flex; gap: 8px; padding: 10px">
+            <label for="ps-add" style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Add a repository</label>
+            <input id="ps-add" type="text" value="{{draft}}" onInput="{{onDraft}}" placeholder="owner/repo or a local checkout" autocomplete="off" style="flex: 1; min-width: 0; height: 32px; box-sizing: border-box; padding: 0 10px; border: 1px solid var(--field-border); border-radius: 7px; background: var(--field); color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12.5px">
+            <button type="submit" style="height: 32px; padding: 0 14px; border: 0; border-radius: 7px; background: #4F46E5; color: #FFFFFF; font-weight: 600; cursor: pointer">Add</button>
+          </form>
+        </div>
+        <p style="margin: 2px 4px 0; font-size: 12px; color: var(--muted)">Repos passed on the command line are added to this list. GitHub Enterprise hosts work too.</p>
+      </section>
+    </sc-if>
+
+    <!-- Merging -->
+    <sc-if value="{{isMerging}}" hint-placeholder-val="{{ false }}">
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px; background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <span style="flex: 1; display: flex; flex-direction: column">
+            <span style="font-weight: 600">Auto-merge</span>
+            <span style="font-size: 12px; color: var(--muted)">Off means watch only. Conflict comments are still posted.</span>
+          </span>
+          <button type="button" role="switch" aria-checked="{{autoOn}}" aria-label="Auto-merge" onClick="{{toggleAuto}}" style="position: relative; width: 38px; height: 22px; flex: none; padding: 0; border: 0; border-radius: 11px; background: {{autoBg}}; cursor: pointer">
+            <span style="position: absolute; top: 2px; left: {{autoKnob}}px; width: 18px; height: 18px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.25)"></span>
+          </button>
+        </div>
+      </section>
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Merge mode</h2>
+        <div role="radiogroup" aria-label="Merge mode" style="display: flex; flex-direction: column; gap: 8px">
+          <sc-for list="{{modes}}" as="m" hint-placeholder-count="3">
+            <button type="button" role="radio" aria-checked="{{m.on}}" onClick="{{m.pick}}" style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 0; border-radius: 10px; background: {{m.bg}}; box-shadow: {{m.ring}}; color: var(--text); cursor: pointer; text-align: left">
+              <span style="width: 16px; height: 16px; flex: none; margin-top: 2px; border-radius: 50%; box-sizing: border-box; border: {{m.dotBorder}}; background: var(--field)"></span>
+              <span style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+                <span style="display: flex; align-items: center; gap: 8px"><span style="font-weight: 600">{{m.label}}</span><code style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted)">{{m.flag}}</code></span>
+                <span style="font-size: 12px; color: var(--text-3)">{{m.help}}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+        <sc-if value="{{isAdmin}}" hint-placeholder-val="{{ false }}">
+          <div role="status" style="padding: 10px 12px; border-radius: 9px; background: var(--admin-bg); color: var(--admin-fg); font-size: 12px">Admin bypasses branch protection on every watched repo. Merge now uses it too.</div>
+        </sc-if>
+      </section>
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Rules</h2>
+        <div style="background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft)">
+            <span style="flex: 1; font-weight: 500">Merge method</span>
+            <span style="color: var(--text-3)">Squash, pinned to the head commit</span>
+          </div>
+          <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft)">
+            <span style="flex: 1; font-weight: 500">Hold label</span>
+            <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 2px 6px; border-radius: 5px; background: var(--hover)">do-not-merge</code>
+          </div>
+          <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px">
+            <span style="flex: 1; display: flex; flex-direction: column">
+              <span style="font-weight: 500">Conflicts</span>
+              <span style="font-size: 12px; color: var(--muted)">Comments once per head commit, then waits.</span>
+            </span>
+            <span style="color: var(--text-3)">Comment and skip</span>
+          </div>
+        </div>
+      </section>
+    </sc-if>
+
+    <!-- Codex -->
+    <sc-if value="{{isCodex}}" hint-placeholder-val="{{ false }}">
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Reviewer</h2>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <span style="width: 34px; height: 34px; flex: none; border-radius: 9px; background: #17181C; color: #FFFFFF; display: flex; align-items: center; justify-content: center" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"></path></svg></span>
+          <span style="flex: 1; display: flex; flex-direction: column">
+            <span style="font-weight: 600">chatgpt-codex-connector[bot]</span>
+            <span style="font-size: 12px; color: var(--muted)">Matched by user id, so no other account can pass as Codex.</span>
+          </span>
+          <span style="display: flex; flex-direction: column; align-items: flex-end; gap: 2px">
+            <span style="font-size: 11px; color: var(--muted)">User id</span>
+            <code style="font-family: 'JetBrains Mono', monospace; font-size: 12.5px">199175422</code>
+          </span>
+        </div>
+      </section>
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Counts as a go-ahead</h2>
+        <div style="background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <div style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--line-soft)">
+            <span style="width: 20px; height: 20px; flex: none; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+            <span style="display: flex; flex-direction: column"><span style="font-weight: 500">Thumbs-up reaction on the pull request</span><span style="font-size: 12px; color: var(--muted)">Must be newer than the latest push or check suite.</span></span>
+          </div>
+          <div style="display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px">
+            <span style="width: 20px; height: 20px; flex: none; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+            <span style="display: flex; flex-direction: column"><span style="font-weight: 500">“Didn't find any major issues” review receipt</span><span style="font-size: 12px; color: var(--muted)">Only when its reviewed commit matches the current head.</span></span>
+          </div>
+        </div>
+      </section>
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Requesting a review</h2>
+        <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px; background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <span style="flex: 1; font-weight: 500">Comment posted</span>
+          <code style="font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 2px 6px; border-radius: 5px; background: var(--hover)">@codex review</code>
+        </div>
+      </section>
+    </sc-if>
+
+    <!-- Notifications -->
+    <sc-if value="{{isNotify}}" hint-placeholder-val="{{ false }}">
+      <section style="display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0 0 2px 4px; font-size: 12px; font-weight: 600; color: var(--muted)">Notify me when</h2>
+        <div style="background: var(--group); border: 1px solid var(--line); border-radius: 10px">
+          <sc-for list="{{notify}}" as="r" hint-placeholder-count="4">
+            <div style="display: flex; align-items: center; gap: 16px; padding: 12px 14px; border-bottom: 1px solid {{r.line}}">
+              <span style="flex: 1; display: flex; flex-direction: column">
+                <span style="font-weight: 500">{{r.label}}</span>
+                <span style="font-size: 12px; color: var(--muted)">{{r.help}}</span>
+              </span>
+              <button type="button" role="switch" aria-checked="{{r.on}}" aria-label="{{r.label}}" onClick="{{r.toggle}}" style="position: relative; width: 38px; height: 22px; flex: none; padding: 0; border: 0; border-radius: 11px; background: {{r.bg}}; cursor: pointer; transition: background 0.15s">
+                <span style="position: absolute; top: 2px; left: {{r.knob}}px; width: 18px; height: 18px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.25); transition: left 0.15s"></span>
+              </button>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+    </sc-if>
+
+  </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"system","options":["system","light","dark"]},"tab":{"editor":"enum","default":"general","options":["general","repos","merging","codex","notify"]},"$preview":{"width":880,"height":640}}'>
+var ICONS = {
+  general: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z',
+  repos: 'M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20',
+  merging: 'M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21V9a9 9 0 0 0 9 9',
+  codex: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z',
+  notify: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0'
+};
+var TABS = [
+  { key: 'general', label: 'General' },
+  { key: 'repos', label: 'Repositories' },
+  { key: 'merging', label: 'Merging' },
+  { key: 'codex', label: 'Codex' },
+  { key: 'notify', label: 'Notifications' }
+];
+var ACCENT = '#4F46E5';
+var DEFAULT_THEME = 'system';
+function sw(on) { return { bg: on ? ACCENT : 'var(--knob-off)', knob: on ? 18 : 2 }; }
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      tab: null, theme: null, mode: 'queue', auto: true, draft: '',
+      flags: { menubar: true, login: false, merged: true, conflict: true, failed: true, cleared: false },
+      repos: [
+        { name: 'pacnpal/prherd', note: '3 open · added from ~/Projects/prherd', mono: 'P', tint: '#4F46E5' },
+        { name: 'pacnpal/airtime', note: '3 open', mono: 'A', tint: '#0F766E' },
+        { name: 'thrillwiki/thrillwiki', note: '3 open', mono: 'T', tint: '#C2410C' },
+        { name: 'thrillwiki/mcp', note: '2 open', mono: 'M', tint: '#7C3AED' }
+      ]
+    };
+  }
+  renderVals() {
+    var self = this, st = this.state;
+    var tab = st.tab || (this.props.tab ?? 'general');
+    var theme = st.theme || (this.props.theme ?? DEFAULT_THEME);
+    function flip(k) { return function () { var f = Object.assign({}, self.state.flags); f[k] = !f[k]; self.setState({ flags: f }); }; }
+    function rows(list) {
+      return list.map(function (r, i) {
+        var on = !!st.flags[r.key], s = sw(on);
+        return { label: r.label, help: r.help, on: on, bg: s.bg, knob: s.knob, toggle: flip(r.key), line: i === list.length - 1 ? 'transparent' : 'var(--line-soft)' };
+      });
+    }
+    var PREV = {
+      light:  { paneBg: '#FFFFFF', sideBg: '#F6F6F8', lineCol: '#E4E4E9', barCol: '#DCDCE2', headCol: '#C9CAD1', rowCol: '#F1F1F4' },
+      dark:   { paneBg: '#16171B', sideBg: '#131418', lineCol: '#2A2B31', barCol: '#2E2F37', headCol: '#3A3B43', rowCol: '#202127' }
+    };
+    var themes = [
+      { key: 'light', label: 'Light' }, { key: 'dark', label: 'Dark' }, { key: 'system', label: 'Match system' }
+    ].map(function (t) {
+      var on = theme === t.key, p = t.key === 'dark' ? PREV.dark : PREV.light;
+      return {
+        label: t.label, on: on, weight: on ? 600 : 500,
+        ring: on ? '0 0 0 2px ' + ACCENT + ', 0 0 0 5px ' + ACCENT + '33' : '0 0 0 1px var(--line)',
+        paneBg: t.key === 'system' ? 'linear-gradient(135deg, #FFFFFF 50%, #16171B 50%)' : p.paneBg,
+        sideBg: p.sideBg, lineCol: p.lineCol, barCol: p.barCol, headCol: p.headCol, rowCol: p.rowCol,
+        pick: function () { self.setState({ theme: t.key }); }
+      };
+    });
+    var a = sw(st.auto);
+    var modes = [
+      { key: 'queue', label: 'Queue', flag: '--auto', help: 'Queues the merge behind required checks. Safest; the default.' },
+      { key: 'force', label: 'Force', flag: '--force', help: 'Merges right away without auto-merge. Branch protection still applies.' },
+      { key: 'admin', label: 'Admin', flag: '--admin', help: 'Merges with admin rights and bypasses branch protection.' }
+    ].map(function (m) {
+      var on = st.mode === m.key;
+      return {
+        label: m.label, flag: m.flag, help: m.help, on: on,
+        bg: on ? 'var(--acc-bg)' : 'var(--group)',
+        ring: on ? '0 0 0 1.5px ' + ACCENT : '0 0 0 1px var(--line)',
+        dotBorder: on ? '5px solid ' + ACCENT : '1.5px solid var(--field-border)',
+        pick: function () { self.setState({ mode: m.key }); }
+      };
+    });
+    var current = TABS.filter(function (t) { return t.key === tab; })[0] || TABS[0];
+    return {
+      themeClass: 'ps-' + theme,
+      tabTitle: current.label,
+      tabs: TABS.map(function (t) {
+        var on = t.key === tab;
+        return { label: t.label, icon: ICONS[t.key], on: on, bg: on ? 'var(--tab-on)' : 'transparent', fg: on ? ACCENT : 'var(--text-3)', pick: function () { self.setState({ tab: t.key }); } };
+      }),
+      isGeneral: tab === 'general', isRepos: tab === 'repos', isMerging: tab === 'merging', isCodex: tab === 'codex', isNotify: tab === 'notify',
+      themes: themes,
+      general: rows([
+        { key: 'menubar', label: 'Show in menu bar', help: 'Counts and the next poll, one click away.' },
+        { key: 'login', label: 'Open at login', help: 'Start watching as soon as you sign in.' }
+      ]),
+      notify: rows([
+        { key: 'merged', label: 'A pull request merges', help: 'One notification per merge, grouped by repo.' },
+        { key: 'conflict', label: 'A pull request starts conflicting', help: 'Sent when prherd posts its conflict comment.' },
+        { key: 'failed', label: 'A verdict lookup fails', help: 'After two failed polls in a row.' },
+        { key: 'cleared', label: 'Codex clears a pull request', help: 'Useful while Auto-merge is off.' }
+      ]),
+      autoOn: st.auto, autoBg: a.bg, autoKnob: a.knob,
+      toggleAuto: function () { self.setState({ auto: !self.state.auto }); },
+      modes: modes, isAdmin: st.mode === 'admin',
+      repos: st.repos.map(function (r, i) {
+        return { name: r.name, note: r.note, mono: r.mono, tint: r.tint, remove: function () { self.setState({ repos: self.state.repos.filter(function (_, j) { return j !== i; }) }); } };
+      }),
+      draft: st.draft,
+      onDraft: function (e) { self.setState({ draft: e.target.value }); },
+      addRepo: function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        var v = (self.state.draft || '').trim();
+        if (!v) return;
+        self.setState({ draft: '', repos: self.state.repos.concat([{ name: v, note: 'Checking access…', mono: v.charAt(0).toUpperCase(), tint: '#52525B' }]) });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>
