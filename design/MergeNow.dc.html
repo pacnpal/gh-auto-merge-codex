@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>prherd — merge now confirmation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ph-light,.ph-system{color-scheme:light;--scrim:#9FA0A7;--win:#FFFFFF;--group:#F6F6F8;--chip:#F1F1F4;--line:#E8E8ED;--line-soft:#F0F0F3;--row-mute:#FAFAFB;--field-border:#DEDEE4;--text:#17181C;--text-2:#2A2D35;--text-3:#3D414C;--muted:#5A5F6B;--soft-text:#4F5563;--inv:#17181C;--inv-fg:#FFFFFF;--dialog-shadow:0 1px 2px rgba(16,17,20,0.1),0 32px 64px -16px rgba(16,17,20,0.45);--ok-fg:#1D6B36;--ok-bg:#E5F4EA;--bad-fg:#A3191F;--bad-bg:#FDE7E7;--acc-fg:#4F46E5;--acc-bg:#EEF0FF}
+.ph-dark{color-scheme:dark;--scrim:#050506;--win:#1A1B20;--group:#22232A;--chip:#26272E;--line:#2E2F36;--line-soft:#26272E;--row-mute:#1E1F25;--field-border:#3A3B43;--text:#ECEDF0;--text-2:#D3D5DB;--text-3:#B4B7C0;--muted:#959AA5;--soft-text:#A9ADB8;--inv:#ECEDF0;--inv-fg:#16171B;--dialog-shadow:0 0 0 1px #2E2F36,0 32px 64px -16px rgba(0,0,0,0.8);--ok-fg:#7BD9A4;--ok-bg:#15301F;--bad-fg:#FF9494;--bad-bg:#3A1A1C;--acc-fg:#B4B6FF;--acc-bg:#23244A}
+@media (prefers-color-scheme: dark){.ph-system{color-scheme:dark;--scrim:#050506;--win:#1A1B20;--group:#22232A;--chip:#26272E;--line:#2E2F36;--line-soft:#26272E;--row-mute:#1E1F25;--field-border:#3A3B43;--text:#ECEDF0;--text-2:#D3D5DB;--text-3:#B4B7C0;--muted:#959AA5;--soft-text:#A9ADB8;--inv:#ECEDF0;--inv-fg:#16171B;--dialog-shadow:0 0 0 1px #2E2F36,0 32px 64px -16px rgba(0,0,0,0.8);--ok-fg:#7BD9A4;--ok-bg:#15301F;--bad-fg:#FF9494;--bad-bg:#3A1A1C;--acc-fg:#B4B6FF;--acc-bg:#23244A}}
+a{color:#4338CA}
+button{font:inherit}
+button:focus-visible,a:focus-visible{outline:2px solid #6366F1;outline-offset:2px}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width: 640px; height: 560px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; background: var(--scrim); font-family: Inter, system-ui, sans-serif; color: var(--text); font-size: 13px; -webkit-font-smoothing: antialiased">
+  <div role="dialog" aria-modal="true" aria-labelledby="mn-title" style="width: 480px; box-sizing: border-box; background: var(--win); border-radius: 14px; box-shadow: var(--dialog-shadow); overflow: hidden">
+
+    <sc-if value="{{pending}}" hint-placeholder-val="{{ true }}">
+      <div style="padding: 22px 24px 0; display: flex; gap: 14px; align-items: flex-start">
+        <span style="width: 40px; height: 40px; flex: none; border-radius: 10px; background: var(--acc-bg); color: var(--acc-fg); display: flex; align-items: center; justify-content: center">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21V9a9 9 0 0 0 9 9"></path></svg>
+        </span>
+        <div>
+          <h2 id="mn-title" style="margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -0.01em">Merge 2 pull requests now?</h2>
+          <p style="margin: 4px 0 0; color: var(--soft-text); font-size: 12.5px; line-height: 1.5">These squash-merge right away without waiting for Codex. Each merge is pinned to the commit shown, so GitHub refuses it if someone has pushed since.</p>
+        </div>
+      </div>
+
+      <ul style="list-style: none; margin: 18px 24px 0; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden">
+        <li style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft)">
+          <span style="width: 18px; height: 18px; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+            <span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Menu bar extra with live merge countdown</span>
+            <span style="font-size: 11.5px; color: var(--muted)">pacnpal/prherd <span style="font-family: 'JetBrains Mono', monospace">#14</span></span>
+          </span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; background: var(--chip); border-radius: 5px; padding: 2px 6px; color: var(--text-3)">3f9a2c1</span>
+        </li>
+        <li style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line-soft)">
+          <span style="width: 18px; height: 18px; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+            <span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Persist column widths between launches</span>
+            <span style="font-size: 11.5px; color: var(--muted)">pacnpal/prherd <span style="font-family: 'JetBrains Mono', monospace">#13</span> · Codex still reviewing</span>
+          </span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; background: var(--chip); border-radius: 5px; padding: 2px 6px; color: var(--text-3)">a81d07e</span>
+        </li>
+        <li style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--row-mute)">
+          <span style="width: 18px; height: 18px; border-radius: 50%; background: var(--bad-bg); color: var(--bad-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></span>
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+            <span style="font-weight: 500; color: var(--soft-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Offline queue for ride-time submissions</span>
+            <span style="font-size: 11.5px; color: var(--bad-fg)">Skipped — merge conflict</span>
+          </span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted)">#231</span>
+        </li>
+      </ul>
+
+      <div style="margin: 14px 24px 0; display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: var(--group); font-size: 12px; color: var(--text-3); line-height: 1.5">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 2px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"></path></svg>
+        <span>Mode is <strong style="font-weight: 600; color: var(--text)">Queue</strong>, so this merges like Force: branch protection still applies. Switch to Admin to bypass it.</span>
+      </div>
+
+      <div style="display: flex; justify-content: flex-end; gap: 8px; padding: 20px 24px 22px">
+        <a href="Main.dc.html" style="display: flex; align-items: center; height: 36px; padding: 0 14px; border: 1px solid var(--field-border); border-radius: 9px; color: var(--text); text-decoration: none; font-weight: 500">Cancel</a>
+        <button type="button" onClick="{{confirm}}" style="height: 36px; padding: 0 16px; border: 0; border-radius: 9px; background: #4F46E5; color: #FFFFFF; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px">
+          Merge 2 now
+          <kbd style="font-family: Inter, sans-serif; font-size: 11px; color: #D9DAFF; font-weight: 500">⌘↩</kbd>
+        </button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{done}}" hint-placeholder-val="{{ false }}">
+      <div style="padding: 36px 28px 28px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px">
+        <span style="width: 52px; height: 52px; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+        </span>
+        <h2 style="margin: 4px 0 0; font-size: 16px; font-weight: 700">2 pull requests merged</h2>
+        <p style="margin: 0; color: var(--soft-text); font-size: 12.5px; max-width: 340px; line-height: 1.5">pacnpal/prherd #14 and #13 were squash-merged into main. #231 was skipped because it conflicts with main.</p>
+        <div style="display: flex; gap: 8px; margin-top: 12px">
+          <button type="button" onClick="{{reset}}" style="height: 36px; padding: 0 14px; border: 1px solid var(--field-border); border-radius: 9px; background: var(--win); color: var(--text); font-weight: 500; cursor: pointer">Show again</button>
+          <a href="Main.dc.html" style="display: flex; align-items: center; height: 36px; padding: 0 16px; border-radius: 9px; background: var(--inv); color: var(--inv-fg); text-decoration: none; font-weight: 600">Done</a>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"system","options":["system","light","dark"]},"$preview":{"width":640,"height":560}}'>
+var DEFAULT_THEME = 'system';
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { done: false }; }
+  renderVals() {
+    var self = this;
+    return {
+      themeClass: 'ph-' + (this.props.theme ?? DEFAULT_THEME),
+      pending: !this.state.done,
+      done: this.state.done,
+      confirm: function () { self.setState({ done: true }); },
+      reset: function () { self.setState({ done: false }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

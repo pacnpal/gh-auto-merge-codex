@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>prherd — first run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ph-light,.ph-system{color-scheme:light;--win:#FFFFFF;--group:#F6F6F8;--line:#ECECF0;--card-line:#E8E8ED;--chip:#E0E0E6;--field:#FFFFFF;--field-border:#D4D4DB;--text:#17181C;--text-3:#3D414C;--muted:#5A5F6B;--soft-text:#4F5563;--inv:#17181C;--inv-fg:#FFFFFF;--ok-fg:#1D6B36;--ok-bg:#E5F4EA}
+.ph-dark{color-scheme:dark;--win:#16171B;--group:#131418;--line:#2A2B31;--card-line:#2A2B31;--chip:#33343C;--field:#111215;--field-border:#3A3B43;--text:#ECEDF0;--text-3:#B4B7C0;--muted:#959AA5;--soft-text:#A9ADB8;--inv:#ECEDF0;--inv-fg:#16171B;--ok-fg:#7BD9A4;--ok-bg:#15301F}
+@media (prefers-color-scheme: dark){.ph-system{color-scheme:dark;--win:#16171B;--group:#131418;--line:#2A2B31;--card-line:#2A2B31;--chip:#33343C;--field:#111215;--field-border:#3A3B43;--text:#ECEDF0;--text-3:#B4B7C0;--muted:#959AA5;--soft-text:#A9ADB8;--inv:#ECEDF0;--inv-fg:#16171B;--ok-fg:#7BD9A4;--ok-bg:#15301F}}
+a{color:#4338CA}
+button{font:inherit}
+input{font:inherit}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #6366F1;outline-offset:2px}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width: 960px; height: 640px; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); background: var(--win); font-family: Inter, system-ui, sans-serif; color: var(--text); font-size: 13px; -webkit-font-smoothing: antialiased">
+
+  <section style="padding: 56px 48px 40px 56px; display: flex; flex-direction: column; gap: 28px">
+    <div style="display: flex; align-items: center; gap: 12px">
+      <svg width="40" height="40" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="7" fill="#4F46E5"></rect><path d="M8 9.5 L19.5 14 M8 18.5 L19.5 14" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" fill="none"></path><circle cx="8" cy="9.5" r="2.6" fill="#FFFFFF"></circle><circle cx="8" cy="18.5" r="2.6" fill="#FFFFFF"></circle><circle cx="19.5" cy="14" r="3.2" fill="#FFFFFF"></circle></svg>
+      <span style="font-weight: 700; font-size: 18px; letter-spacing: -0.01em">prherd</span>
+    </div>
+
+    <div>
+      <h1 style="margin: 0; font-size: 30px; line-height: 1.15; font-weight: 700; letter-spacing: -0.025em">Merge what Codex clears.<br>Skip what it doesn't.</h1>
+      <p style="margin: 12px 0 0; max-width: 440px; color: var(--soft-text); font-size: 14px; line-height: 1.55">Add the repositories to watch. prherd polls their open pull requests and squash-merges each one once Codex signs off on its latest commit.</p>
+    </div>
+
+    <form onSubmit="{{add}}" style="display: flex; flex-direction: column; gap: 8px">
+      <label for="fr-repo" style="font-size: 12px; font-weight: 600; color: var(--text-3)">Repository</label>
+      <div style="display: flex; gap: 8px">
+        <input id="fr-repo" type="text" value="{{draft}}" onInput="{{onDraft}}" placeholder="owner/repo or ~/path/to/checkout" autocomplete="off" style="flex: 1; min-width: 0; height: 40px; box-sizing: border-box; padding: 0 12px; border: 1px solid var(--field-border); border-radius: 9px; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text); background: var(--field)">
+        <button type="submit" style="height: 40px; padding: 0 16px; border: 0; border-radius: 9px; background: var(--inv); color: var(--inv-fg); font-weight: 600; cursor: pointer">Add</button>
+      </div>
+      <span style="font-size: 11.5px; color: var(--muted)">GitHub Enterprise hosts work too. Press Return to add.</span>
+    </form>
+
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <sc-for list="{{repos}}" as="r" hint-placeholder-count="2">
+        <div style="display: flex; align-items: center; gap: 10px; height: 40px; padding: 0 6px 0 12px; border: 1px solid var(--card-line); border-radius: 9px">
+          <span style="width: 18px; height: 18px; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          <span style="flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 12.5px">{{r.name}}</span>
+          <span style="font-size: 11.5px; color: var(--muted)">{{r.note}}</span>
+          <button type="button" aria-label="Remove {{r.name}}" onClick="{{r.remove}}" style="width: 28px; height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--soft-text); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+        </div>
+      </sc-for>
+    </div>
+
+    <div style="margin-top: auto; display: flex; align-items: center; gap: 12px">
+      <a href="Main.dc.html" style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px; border-radius: 9px; background: #4F46E5; color: #FFFFFF; text-decoration: none; font-weight: 600">
+        Start watching {{count}}
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+      </a>
+      <span style="font-size: 12px; color: var(--muted)">Auto-merge starts on, in Queue mode. You can change both any time.</span>
+    </div>
+  </section>
+
+  <aside style="background: var(--group); border-left: 1px solid var(--line); padding: 56px 40px 40px; display: flex; flex-direction: column; gap: 28px">
+    <div>
+      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px">Setup</div>
+      <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px">
+        <li style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 20px; height: 20px; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          <span style="flex: 1">GitHub CLI installed</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted)">gh 2.62</span>
+        </li>
+        <li style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 20px; height: 20px; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          <span style="flex: 1">Signed in</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted)">pacnpal</span>
+        </li>
+        <li style="display: flex; align-items: center; gap: 10px">
+          <span style="width: 20px; height: 20px; border-radius: 50%; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+          <span style="flex: 1">Merge rights on added repos</span>
+          <span style="font-size: 11.5px; color: var(--muted)">checked on add</span>
+        </li>
+      </ul>
+    </div>
+
+    <div>
+      <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px">What counts as a go-ahead</div>
+      <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 14px">
+        <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px">
+          <span style="width: 22px; height: 22px; border-radius: 6px; background: var(--win); border: 1px solid var(--chip); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">1</span>
+          <span style="line-height: 1.5"><strong style="font-weight: 600">A thumbs-up from Codex</strong> on the pull request, or its review receipt saying no major issues for the current head.</span>
+        </li>
+        <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px">
+          <span style="width: 22px; height: 22px; border-radius: 6px; background: var(--win); border: 1px solid var(--chip); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">2</span>
+          <span style="line-height: 1.5"><strong style="font-weight: 600">Newer than the latest commit.</strong> A push or re-run check after the go-ahead voids it, using GitHub's own timestamps.</span>
+        </li>
+        <li style="display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px">
+          <span style="width: 22px; height: 22px; border-radius: 6px; background: var(--win); border: 1px solid var(--chip); font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center">3</span>
+          <span style="line-height: 1.5"><strong style="font-weight: 600">No conflicts, no hold.</strong> Conflicting pull requests get one comment. Anything labeled <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; background: var(--win); border: 1px solid var(--chip); border-radius: 4px; padding: 0 4px">do-not-merge</span> is left alone.</span>
+        </li>
+      </ol>
+    </div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"system","options":["system","light","dark"]},"$preview":{"width":960,"height":640}}'>
+var DEFAULT_THEME = 'system';
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { draft: '', repos: [{ name: 'pacnpal/prherd', note: '3 open' }, { name: 'thrillwiki/thrillwiki', note: '3 open' }] };
+  }
+  renderVals() {
+    var self = this, st = this.state;
+    var n = st.repos.length;
+    return {
+      themeClass: 'ph-' + (this.props.theme ?? DEFAULT_THEME),
+      draft: st.draft,
+      onDraft: function (e) { self.setState({ draft: e.target.value }); },
+      add: function (e) {
+        if (e && e.preventDefault) e.preventDefault();
+        var v = (self.state.draft || '').trim();
+        if (!v) return;
+        self.setState({ draft: '', repos: self.state.repos.concat([{ name: v, note: 'checking…' }]) });
+      },
+      repos: st.repos.map(function (r, i) {
+        return { name: r.name, note: r.note, remove: function () { self.setState({ repos: self.state.repos.filter(function (_, j) { return j !== i; }) }); } };
+      }),
+      count: n === 1 ? '1 repo' : n + ' repos'
+    };
+  }
+}
+</script>
+</body>
+</html>

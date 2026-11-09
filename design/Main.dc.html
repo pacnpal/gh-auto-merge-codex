@@ -1,0 +1,621 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>prherd — main window</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ph-light,.ph-system{color-scheme:light;--page:#E7E7EB;--win:#FFFFFF;--win-border:#D9D9DF;--win-shadow:0 1px 2px rgba(16,17,20,0.06),0 24px 48px -12px rgba(16,17,20,0.18);--bar:#FBFBFC;--line:#E4E4E9;--line-mid:#ECECF0;--line-soft:#F0F0F3;--side:#F6F6F8;--hover:#F1F1F4;--side-hover:#E6E6EA;--side-on:#E4E4EA;--seg:#EEEEF2;--seg-on:#FFFFFF;--seg-shadow:0 1px 2px rgba(16,17,20,0.12),0 0 0 1px rgba(16,17,20,0.04);--field:#FFFFFF;--field-border:#DEDEE4;--text:#17181C;--text-2:#2A2D35;--text-3:#3D414C;--muted:#5A5F6B;--faint:#9A9EA8;--head:#FAFAFB;--row-hover:#FAFAFB;--chk:#F7F7FA;--chip-border:#E8E8ED;--knob-off:#8B8F99;--inv:#17181C;--inv-fg:#FFFFFF;--inv-muted:#C9CAD1;--inv-line:rgba(255,255,255,0.18);--inv-ring:rgba(255,255,255,0.22);--avatar:#3F3F46;--link:#4338CA;--ok-fg:#1D6B36;--ok-bg:#E5F4EA;--ok-dot:#1F9D55;--warn-fg:#7A4F00;--warn-bg:#FFF1CC;--warn-dot:#D69E2E;--bad-fg:#A3191F;--bad-bg:#FDE7E7;--bad-dot:#D64545;--err-fg:#8F3A00;--err-bg:#FFE9D9;--err-dot:#DD6B20;--hold-fg:#3A4150;--hold-bg:#ECEEF2;--none-fg:#4F5563;--none-bg:#F3F3F6;--acc-fg:#3730A3;--acc-bg:#EEF0FF;--acc-dot:#4F46E5;--open-dot:#9A9EA8;--draft-dot:#C4C6CC;--admin-bg:#FFF4E5;--admin-line:#F5D9AE;--admin-fg:#7A4100}
+.ph-dark{color-scheme:dark;--page:#0B0B0E;--win:#16171B;--win-border:#2C2D33;--win-shadow:0 1px 2px rgba(0,0,0,0.4),0 24px 56px -12px rgba(0,0,0,0.7);--bar:#1B1C21;--line:#2A2B31;--line-mid:#25262C;--line-soft:#202127;--side:#131418;--hover:#23242A;--side-hover:#212228;--side-on:#2A2B33;--seg:#0F1013;--seg-on:#2E2F37;--seg-shadow:0 1px 2px rgba(0,0,0,0.5);--field:#111215;--field-border:#33343C;--text:#ECEDF0;--text-2:#D3D5DB;--text-3:#B4B7C0;--muted:#959AA5;--faint:#5F636D;--head:#191A1F;--row-hover:#1C1D22;--chk:#1D1E25;--chip-border:#2A2B31;--knob-off:#666B77;--inv:#ECEDF0;--inv-fg:#16171B;--inv-muted:#4F5563;--inv-line:rgba(22,23,27,0.2);--inv-ring:rgba(22,23,27,0.2);--avatar:#4A4B55;--link:#A5A8FF;--ok-fg:#7BD9A4;--ok-bg:#15301F;--ok-dot:#3FBF77;--warn-fg:#F2C462;--warn-bg:#33280F;--warn-dot:#E0A93A;--bad-fg:#FF9494;--bad-bg:#3A1A1C;--bad-dot:#F06363;--err-fg:#FFB27A;--err-bg:#3A2312;--err-dot:#F08A3E;--hold-fg:#C3C7D1;--hold-bg:#262830;--none-fg:#A9ADB8;--none-bg:#202127;--acc-fg:#B4B6FF;--acc-bg:#23244A;--acc-dot:#7C77FF;--open-dot:#6B6F79;--draft-dot:#4A4C55;--admin-bg:#2E2210;--admin-line:#4A3615;--admin-fg:#F2C462}
+@media (prefers-color-scheme: dark){.ph-system{color-scheme:dark;--page:#0B0B0E;--win:#16171B;--win-border:#2C2D33;--win-shadow:0 1px 2px rgba(0,0,0,0.4),0 24px 56px -12px rgba(0,0,0,0.7);--bar:#1B1C21;--line:#2A2B31;--line-mid:#25262C;--line-soft:#202127;--side:#131418;--hover:#23242A;--side-hover:#212228;--side-on:#2A2B33;--seg:#0F1013;--seg-on:#2E2F37;--seg-shadow:0 1px 2px rgba(0,0,0,0.5);--field:#111215;--field-border:#33343C;--text:#ECEDF0;--text-2:#D3D5DB;--text-3:#B4B7C0;--muted:#959AA5;--faint:#5F636D;--head:#191A1F;--row-hover:#1C1D22;--chk:#1D1E25;--chip-border:#2A2B31;--knob-off:#666B77;--inv:#ECEDF0;--inv-fg:#16171B;--inv-muted:#4F5563;--inv-line:rgba(22,23,27,0.2);--inv-ring:rgba(22,23,27,0.2);--avatar:#4A4B55;--link:#A5A8FF;--ok-fg:#7BD9A4;--ok-bg:#15301F;--ok-dot:#3FBF77;--warn-fg:#F2C462;--warn-bg:#33280F;--warn-dot:#E0A93A;--bad-fg:#FF9494;--bad-bg:#3A1A1C;--bad-dot:#F06363;--err-fg:#FFB27A;--err-bg:#3A2312;--err-dot:#F08A3E;--hold-fg:#C3C7D1;--hold-bg:#262830;--none-fg:#A9ADB8;--none-bg:#202127;--acc-fg:#B4B6FF;--acc-bg:#23244A;--acc-dot:#7C77FF;--open-dot:#6B6F79;--draft-dot:#4A4C55;--admin-bg:#2E2210;--admin-line:#4A3615;--admin-fg:#F2C462}}
+a{color:var(--link)}
+button{font:inherit}
+input{font:inherit}
+.ph-btn:hover{background:var(--hover)}
+.ph-row:hover{background:var(--row-hover)}
+.ph-side:hover{background:var(--side-hover)}
+.ph-ghost:hover{background:var(--hover)}
+.ph-primary:hover{filter:brightness(1.08)}
+.ph-search:focus-within{outline:2px solid #6366F1;outline-offset:2px}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid #6366F1;outline-offset:2px}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="min-height: 100vh; box-sizing: border-box; padding: 24px; background: var(--page); font-family: Inter, system-ui, sans-serif; color: var(--text); font-size: 13px; line-height: 1.45; -webkit-font-smoothing: antialiased">
+<div style="max-width: 1440px; margin: 0 auto; background: var(--win); border: 1px solid var(--win-border); border-radius: 12px; overflow: hidden; box-shadow: var(--win-shadow)">
+
+<!-- Title bar / toolbar -->
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 10px 16px; background: var(--bar); border-bottom: 1px solid var(--line)">
+  <div style="display: flex; align-items: center; gap: 8px" aria-hidden="true">
+    <span style="width: 12px; height: 12px; border-radius: 50%; background: #FF5F57; border: 1px solid #E0443E"></span>
+    <span style="width: 12px; height: 12px; border-radius: 50%; background: #FEBC2E; border: 1px solid #DEA123"></span>
+    <span style="width: 12px; height: 12px; border-radius: 50%; background: #28C840; border: 1px solid #1AAB29"></span>
+  </div>
+  <div style="display: flex; align-items: center; gap: 10px; margin-left: 8px">
+    <svg width="26" height="26" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="7" fill="{{accent}}"></rect><path d="M8 9.5 L19.5 14 M8 18.5 L19.5 14" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" fill="none"></path><circle cx="8" cy="9.5" r="2.6" fill="#FFFFFF"></circle><circle cx="8" cy="18.5" r="2.6" fill="#FFFFFF"></circle><circle cx="19.5" cy="14" r="3.2" fill="#FFFFFF"></circle></svg>
+    <span style="font-weight: 700; font-size: 15px; letter-spacing: -0.01em">prherd</span>
+  </div>
+
+  <label class="ph-search" style="flex: 1 1 220px; max-width: 360px; display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--muted)">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM21 21l-4.3-4.3"></path></svg>
+    <span style="position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0)">Search pull requests</span>
+    <input type="search" placeholder="Search pull requests, branches, authors" value="{{query}}" onInput="{{onQuery}}" style="flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: 13px">
+    <kbd style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); border: 1px solid var(--field-border); border-radius: 4px; padding: 0 5px">⌘K</kbd>
+  </label>
+
+  <div style="flex: 1 1 0; min-width: 0"></div>
+
+  <div role="radiogroup" aria-label="Merge mode" style="display: flex; padding: 2px; background: var(--seg); border-radius: 8px; gap: 2px">
+    <sc-for list="{{modes}}" as="m" hint-placeholder-count="3">
+      <button type="button" role="radio" aria-checked="{{m.on}}" onClick="{{m.pick}}" title="{{m.hint}}" style="display: flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: 6px; cursor: pointer; font-size: 12.5px; font-weight: 500; background: {{m.bg}}; color: {{m.fg}}; box-shadow: {{m.shadow}}">{{m.label}}</button>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 6px; height: 32px; padding: 0 4px 0 10px; border: 1px solid var(--field-border); border-radius: 8px; color: var(--text-3)">
+    <span style="font-size: 12.5px">Every</span>
+    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--text)">{{interval}}s</span>
+    <span style="display: flex; flex-direction: column">
+      <button type="button" aria-label="Poll less often" class="ph-ghost" style="width: 20px; height: 14px; border: 0; background: transparent; border-radius: 3px; cursor: pointer; padding: 0; color: var(--muted)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 15l6-6 6 6"></path></svg></button>
+      <button type="button" aria-label="Poll more often" class="ph-ghost" style="width: 20px; height: 14px; border: 0; background: transparent; border-radius: 3px; cursor: pointer; padding: 0; color: var(--muted)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg></button>
+    </span>
+  </div>
+
+  <button type="button" role="switch" aria-checked="{{auto}}" onClick="{{toggleAuto}}" style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 8px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); cursor: pointer; color: var(--text); font-size: 12.5px; font-weight: 500">
+    <span style="position: relative; width: 30px; height: 18px; border-radius: 9px; background: {{switchBg}}; transition: background 0.15s">
+      <span style="position: absolute; top: 2px; left: {{knobLeft}}px; width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.25); transition: left 0.15s"></span>
+    </span>
+    Auto-merge
+  </button>
+
+  <button type="button" onClick="{{pollNow}}" class="ph-primary" style="display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 8px; border: 0; border-radius: 8px; background: var(--inv); color: var(--inv-fg); cursor: pointer; font-size: 12.5px; font-weight: 600">
+    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-opacity="0.22" stroke-width="2.5"></circle><circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="{{ring}}" transform="rotate(-90 10 10)"></circle></svg>
+    Poll now
+    <span style="font-family: 'JetBrains Mono', monospace; font-weight: 400; color: var(--inv-muted); font-size: 11.5px">{{secs}}s</span>
+  </button>
+</header>
+
+<sc-if value="{{isAdmin}}" hint-placeholder-val="{{ false }}">
+  <div role="status" style="display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--admin-bg); border-bottom: 1px solid var(--admin-line); color: var(--admin-fg); font-size: 12.5px">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"></path></svg>
+    <span><strong style="font-weight: 600">Admin mode.</strong> Merges bypass branch protection on every watched repo.</span>
+  </div>
+</sc-if>
+<sc-if value="{{paused}}" hint-placeholder-val="{{ false }}">
+  <div role="status" style="display: flex; align-items: center; gap: 10px; padding: 8px 16px; background: var(--hover); border-bottom: 1px solid var(--line); color: var(--text-3); font-size: 12.5px">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M10 15V9M14 15V9M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"></path></svg>
+    <span><strong style="font-weight: 600">Watching only.</strong> prherd keeps polling and still flags conflicts, but won't merge until Auto-merge is back on.</span>
+    <button type="button" onClick="{{toggleAuto}}" style="margin-left: auto; border: 0; background: transparent; color: var(--link); font-weight: 600; cursor: pointer; padding: 4px 6px">Resume merging</button>
+  </div>
+</sc-if>
+
+<div style="display: flex; flex-wrap: wrap; align-items: stretch">
+
+<!-- Sidebar -->
+<nav aria-label="Repositories and filters" style="flex: 1 1 232px; max-width: 100%; box-sizing: border-box; background: var(--side); border-right: 1px solid var(--line); padding: 14px 10px; display: flex; flex-direction: column; gap: 18px">
+  <div style="display: flex; flex-direction: column; gap: 2px">
+    <div style="padding: 0 8px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted)">Views</div>
+    <sc-for list="{{filters}}" as="f" hint-placeholder-count="6">
+      <button type="button" class="ph-side" onClick="{{f.pick}}" aria-pressed="{{f.on}}" style="display: flex; align-items: center; gap: 10px; width: 100%; height: 32px; padding: 0 8px; border: 0; border-radius: 7px; background: {{f.bg}}; color: var(--text); cursor: pointer; text-align: left; font-size: 13px; font-weight: {{f.weight}}">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: {{f.iconColor}}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{f.icon}}"></path></svg>
+        <span style="flex: 1">{{f.label}}</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted)">{{f.count}}</span>
+      </button>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; flex-direction: column; gap: 2px">
+    <div style="display: flex; align-items: center; padding: 0 2px 6px 8px">
+      <span style="flex: 1; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted)">Repositories</span>
+      <a href="FirstRun.dc.html" aria-label="Add repository" class="ph-side" style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 6px; color: var(--text-3)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></a>
+    </div>
+    <sc-for list="{{repoNav}}" as="r" hint-placeholder-count="5">
+      <button type="button" class="ph-side" onClick="{{r.pick}}" aria-pressed="{{r.on}}" style="display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 4px 8px; border: 0; border-radius: 7px; background: {{r.bg}}; color: var(--text); cursor: pointer; text-align: left">
+        <span style="width: 22px; height: 22px; flex: none; border-radius: 6px; background: {{r.tint}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700" aria-hidden="true">{{r.mono}}</span>
+        <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+          <span style="font-size: 12.5px; font-weight: {{r.weight}}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{r.name}}</span>
+          <span style="font-size: 11px; color: var(--muted)">{{r.owner}}</span>
+        </span>
+        <span title="{{r.healthLabel}}" style="width: 7px; height: 7px; border-radius: 50%; background: {{r.health}}"></span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); min-width: 14px; text-align: right">{{r.count}}</span>
+      </button>
+    </sc-for>
+  </div>
+
+  <div style="margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line)">
+    <div role="radiogroup" aria-label="Appearance" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); padding: 2px; gap: 2px; background: var(--seg); border-radius: 8px">
+      <sc-for list="{{themes}}" as="t" hint-placeholder-count="3">
+        <button type="button" role="radio" aria-checked="{{t.on}}" aria-label="{{t.label}} appearance" title="{{t.label}}" onClick="{{t.pick}}" style="display: flex; align-items: center; justify-content: center; gap: 6px; height: 26px; border: 0; border-radius: 6px; cursor: pointer; font-size: 11.5px; font-weight: 500; background: {{t.bg}}; color: {{t.fg}}; box-shadow: {{t.shadow}}">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.icon}}"></path></svg>
+          {{t.label}}
+        </button>
+      </sc-for>
+    </div>
+    <div style="display: flex; align-items: center; gap: 10px; padding: 0 8px">
+      <span style="width: 28px; height: 28px; border-radius: 50%; background: var(--avatar); color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700" aria-hidden="true">PN</span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+        <span style="font-size: 12.5px; font-weight: 600">pacnpal</span>
+        <span style="font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot)"></span>gh 2.62 · signed in</span>
+      </span>
+      <a href="Settings.dc.html" aria-label="Settings" class="ph-side" style="width: 28px; height: 28px; border-radius: 6px; color: var(--text-3); display: flex; align-items: center; justify-content: center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg></a>
+    </div>
+  </div>
+</nav>
+
+<!-- Content -->
+<main style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; background: var(--win)">
+  <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px 24px; padding: 20px 24px 16px">
+    <div style="flex: 1 1 260px">
+      <h1 style="margin: 0; font-size: 20px; font-weight: 700; letter-spacing: -0.015em">{{heading}}</h1>
+      <p style="margin: 4px 0 0; color: var(--muted); font-size: 12.5px">{{subheading}}</p>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <sc-for list="{{stats}}" as="s" hint-placeholder-count="4">
+        <div style="display: flex; flex-direction: column; gap: 2px; min-width: 92px; padding: 8px 12px; border: 1px solid var(--chip-border); border-radius: 10px">
+          <span style="font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 6px"><span style="width: 7px; height: 7px; border-radius: 2px; background: {{s.dot}}"></span>{{s.label}}</span>
+          <span style="font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.01em">{{s.value}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <sc-if value="{{hasChecked}}" hint-placeholder-val="{{ false }}">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 24px 12px; padding: 8px 8px 8px 14px; background: var(--inv); color: var(--inv-fg); border-radius: 10px; box-shadow: 0 8px 20px -8px rgba(16,17,20,0.4)">
+      <span style="font-weight: 600; font-size: 12.5px">{{checkedCount}} selected</span>
+      <span style="flex: 1"></span>
+      <button type="button" style="height: 30px; padding: 0 10px; border: 1px solid var(--inv-line); border-radius: 7px; background: transparent; color: var(--inv-fg); cursor: pointer; font-size: 12.5px">Request Codex review</button>
+      <button type="button" style="height: 30px; padding: 0 10px; border: 1px solid var(--inv-line); border-radius: 7px; background: transparent; color: var(--inv-fg); cursor: pointer; font-size: 12.5px">Don't merge</button>
+      <button type="button" style="height: 30px; padding: 0 10px; border: 1px solid var(--inv-line); border-radius: 7px; background: transparent; color: var(--inv-fg); cursor: pointer; font-size: 12.5px">Update branch</button>
+      <a href="MergeNow.dc.html" style="display: flex; align-items: center; height: 30px; padding: 0 12px; border-radius: 7px; background: var(--inv-fg); color: var(--inv); text-decoration: none; font-weight: 600; font-size: 12.5px">Merge now…</a>
+      <button type="button" aria-label="Clear selection" onClick="{{clearChecked}}" style="width: 30px; height: 30px; border: 0; border-radius: 7px; background: transparent; color: var(--inv-fg); cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"></path></svg></button>
+    </div>
+  </sc-if>
+
+  <div style="overflow-x: auto; border-top: 1px solid var(--line-mid)">
+    <div style="min-width: 860px">
+      <div style="display: grid; grid-template-columns: 40px minmax(240px, 1fr) 168px 132px 104px 88px 64px; align-items: center; height: 34px; padding: 0 16px 0 8px; background: var(--head); border-bottom: 1px solid var(--line-mid); font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted)">
+        <span></span><span>Pull request</span><span>Codex</span><span>Author</span><span>State</span><span>Head</span><span style="text-align: right">Age</span>
+      </div>
+
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+        <div>
+          <div style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 16px; background: var(--win); border-bottom: 1px solid var(--line-soft)">
+            <span style="width: 18px; height: 18px; border-radius: 5px; background: {{g.tint}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700" aria-hidden="true">{{g.mono}}</span>
+            <span style="font-weight: 600; font-size: 12.5px">{{g.full}}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted)">{{g.countLabel}}</span>
+            <span style="flex: 1"></span>
+            <span style="font-size: 11.5px; color: var(--muted)">{{g.polled}}</span>
+          </div>
+          <sc-for list="{{g.rows}}" as="p" hint-placeholder-count="3">
+            <div class="ph-row" style="display: grid; grid-template-columns: 40px minmax(240px, 1fr) 168px 132px 104px 88px 64px; align-items: center; padding: {{rowPad}}px 16px {{rowPad}}px 8px; border-bottom: 1px solid var(--line-soft); background: {{p.rowBg}}; box-shadow: {{p.rowRing}}">
+              <span style="display: flex; justify-content: center">
+                <input type="checkbox" aria-label="Select pull request {{p.num}}" checked="{{p.checked}}" onChange="{{p.toggle}}" style="width: 15px; height: 15px; margin: 0; accent-color: {{accent}}; cursor: pointer">
+              </span>
+              <button type="button" onClick="{{p.pick}}" style="display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; cursor: pointer; color: var(--text)">
+                <span style="display: flex; align-items: baseline; gap: 8px; min-width: 0; width: 100%">
+                  <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted); flex: none">#{{p.num}}</span>
+                  <span style="font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.title}}</span>
+                </span>
+                <span style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted)">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 3v12M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM18 9a9 9 0 0 1-9 9"></path></svg>
+                  {{p.branch}}
+                  <span style="color: var(--faint)" aria-hidden="true">·</span>
+                  <span style="font-family: Inter, sans-serif">{{p.checksLabel}}</span>
+                </span>
+              </button>
+              <span>
+                <span style="display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px 0 7px; border-radius: 999px; background: {{p.v.bg}}; color: {{p.v.fg}}; font-size: 12px; font-weight: 500; white-space: nowrap">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{p.v.icon}}"></path></svg>
+                  {{p.v.label}}
+                </span>
+              </span>
+              <span style="display: flex; align-items: center; gap: 8px; min-width: 0">
+                <span style="width: 22px; height: 22px; flex: none; border-radius: 50%; background: {{p.avatarBg}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700" aria-hidden="true">{{p.initials}}</span>
+                <span style="font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{p.author}}</span>
+              </span>
+              <span>
+                <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; color: {{p.s.fg}}">
+                  <span style="width: 6px; height: 6px; border-radius: 50%; background: {{p.s.dot}}"></span>{{p.s.label}}
+                </span>
+              </span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-3)">{{p.sha}}</span>
+              <span style="text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums">{{p.age}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+
+      <sc-if value="{{isEmpty}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 56px 24px; color: var(--muted); text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" style="color: var(--faint)" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+          <span style="font-weight: 600; color: var(--text)">Nothing here</span>
+          <span style="font-size: 12.5px">No open pull requests match this view.</span>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+
+  <!-- Activity -->
+  <section aria-label="Activity" style="margin-top: auto; border-top: 1px solid var(--line); background: var(--bar)">
+    <div style="display: flex; align-items: center; gap: 10px; height: 38px; padding: 0 16px">
+      <button type="button" onClick="{{toggleLog}}" aria-expanded="{{showLog}}" style="display: flex; align-items: center; gap: 8px; border: 0; background: transparent; cursor: pointer; padding: 4px 0; color: var(--text); font-weight: 600; font-size: 12.5px">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true" style="transform: rotate({{logChevron}}deg); transition: transform 0.15s"><path d="M6 9l6 6 6-6"></path></svg>
+        Activity
+      </button>
+      <span style="display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ok-fg); background: var(--ok-bg); border-radius: 999px; padding: 2px 8px"><span style="width: 6px; height: 6px; border-radius: 50%; background: var(--ok-dot)"></span>Live</span>
+      <span style="flex: 1"></span>
+      <span style="font-size: 11.5px; color: var(--muted)">Next poll in {{secs}}s</span>
+    </div>
+    <sc-if value="{{showLog}}" hint-placeholder-val="{{ true }}">
+      <ol style="list-style: none; margin: 0; padding: 0 16px 14px; display: flex; flex-direction: column; gap: 2px; font-size: 12.5px">
+        <sc-for list="{{log}}" as="e" hint-placeholder-count="6">
+          <li style="display: grid; grid-template-columns: 64px 22px minmax(0, 1fr); align-items: start; gap: 8px; padding: 5px 8px; border-radius: 6px">
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--muted); padding-top: 1px">{{e.time}}</span>
+            <span style="width: 20px; height: 20px; border-radius: 6px; background: {{e.bg}}; color: {{e.fg}}; display: flex; align-items: center; justify-content: center">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{e.icon}}"></path></svg>
+            </span>
+            <span style="color: var(--text-2)"><strong style="font-weight: 600; color: var(--text)">{{e.subject}}</strong> {{e.text}}</span>
+          </li>
+        </sc-for>
+      </ol>
+    </sc-if>
+  </section>
+</main>
+
+<!-- Inspector -->
+<sc-if value="{{showInspector}}" hint-placeholder-val="{{ true }}">
+<aside aria-label="Pull request details" style="flex: 1 1 320px; max-width: 100%; box-sizing: border-box; border-left: 1px solid var(--line); background: var(--win); display: flex; flex-direction: column">
+  <div style="padding: 20px 20px 16px; border-bottom: 1px solid var(--line-mid); display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted)">
+      <span style="width: 16px; height: 16px; border-radius: 4px; background: {{sel.tint}}; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 9px; font-weight: 700" aria-hidden="true">{{sel.mono}}</span>
+      <span>{{sel.repo}}</span>
+      <span style="font-family: 'JetBrains Mono', monospace">#{{sel.num}}</span>
+      <span style="flex: 1"></span>
+      <a href="https://github.com" aria-label="Open on GitHub" style="display: flex; color: var(--text-3)"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></a>
+    </div>
+    <h2 style="margin: 0; font-size: 16px; font-weight: 650; line-height: 1.35; letter-spacing: -0.01em">{{sel.title}}</h2>
+    <div style="display: flex; align-items: center; gap: 6px; font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-3); flex-wrap: wrap">
+      <span style="background: var(--hover); border-radius: 5px; padding: 2px 6px">{{sel.branch}}</span>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" style="color: var(--muted)"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+      <span style="background: var(--hover); border-radius: 5px; padding: 2px 6px">main</span>
+    </div>
+  </div>
+
+  <div style="margin: 16px 20px 0; padding: 14px; border-radius: 10px; background: {{sel.v.bg}}; color: {{sel.v.fg}}; display: flex; gap: 10px; align-items: flex-start">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none; margin-top: 1px"><path d="{{sel.v.icon}}"></path></svg>
+    <div style="display: flex; flex-direction: column; gap: 2px">
+      <span style="font-weight: 650; font-size: 13px">{{sel.headline}}</span>
+      <span style="font-size: 12px; color: var(--text-2)">{{sel.detail}}</span>
+    </div>
+  </div>
+
+  <div style="padding: 18px 20px 4px">
+    <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px">Merge readiness</div>
+    <ul style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+      <sc-for list="{{sel.checks}}" as="c" hint-placeholder-count="4">
+        <li style="display: flex; align-items: flex-start; gap: 10px; font-size: 12.5px">
+          <span style="width: 18px; height: 18px; flex: none; border-radius: 50%; background: {{c.bg}}; color: {{c.fg}}; display: flex; align-items: center; justify-content: center">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{c.icon}}"></path></svg>
+          </span>
+          <span style="display: flex; flex-direction: column">
+            <span style="color: var(--text)">{{c.label}}</span>
+            <span style="color: var(--muted); font-size: 11.5px">{{c.note}}</span>
+          </span>
+        </li>
+      </sc-for>
+    </ul>
+  </div>
+
+  <div style="padding: 18px 20px 4px">
+    <div style="font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px">Timeline</div>
+    <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column">
+      <sc-for list="{{sel.timeline}}" as="t" hint-placeholder-count="4">
+        <li style="display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; gap: 10px; padding-bottom: 12px; position: relative">
+          <span style="display: flex; flex-direction: column; align-items: center">
+            <span style="width: 9px; height: 9px; margin-top: 4px; border-radius: 50%; background: {{t.dot}}; box-shadow: 0 0 0 3px var(--win)"></span>
+            <span style="flex: 1; width: 1px; background: {{t.line}}; margin-top: 4px; margin-bottom: -12px"></span>
+          </span>
+          <span style="font-size: 12.5px; color: var(--text-2)">{{t.text}}</span>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); padding-top: 1px">{{t.time}}</span>
+        </li>
+      </sc-for>
+    </ol>
+  </div>
+
+  <div style="margin-top: auto; padding: 16px 20px 20px; border-top: 1px solid var(--line-mid); display: flex; flex-direction: column; gap: 8px">
+    <a href="MergeNow.dc.html" class="ph-primary" style="display: flex; align-items: center; justify-content: center; gap: 8px; height: 38px; border-radius: 9px; background: {{accent}}; color: #FFFFFF; text-decoration: none; font-weight: 600; font-size: 13px">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21V9a9 9 0 0 0 9 9"></path></svg>
+      Merge now…
+    </a>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <button type="button" class="ph-btn" style="height: 34px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--text); cursor: pointer; font-size: 12.5px; font-weight: 500">Request review</button>
+      <button type="button" class="ph-btn" style="height: 34px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--text); cursor: pointer; font-size: 12.5px; font-weight: 500">{{sel.holdLabel}}</button>
+      <button type="button" class="ph-btn" style="height: 34px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--text); cursor: pointer; font-size: 12.5px; font-weight: 500">Update branch</button>
+      <button type="button" class="ph-btn" style="height: 34px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--text); cursor: pointer; font-size: 12.5px; font-weight: 500">Copy link</button>
+    </div>
+  </div>
+</aside>
+</sc-if>
+
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"system","options":["system","light","dark"]},"accent":{"editor":"color","default":"#4F46E5","options":["#4F46E5","#0F766E","#C2410C","#52525B"]},"density":{"editor":"enum","default":"comfortable","options":["comfortable","compact"]},"interval":{"editor":"int","default":60,"min":5,"max":600,"unit":"s"},"showInspector":{"editor":"boolean","default":true},"$preview":{"width":1440,"height":1120}}'>
+var DEFAULT_THEME = 'system';
+var I = {
+  thumb: 'M7 10v12M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z',
+  checkc: 'M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3',
+  eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12ZM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
+  tri: 'M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0ZM12 9v4M12 17h.01',
+  oct: 'M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2ZM8 12h8',
+  clock: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM12 6v6l4 2',
+  help: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01',
+  inbox: 'M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z',
+  merge: 'M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21V9a9 9 0 0 0 9 9',
+  refresh: 'M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5',
+  spark: 'M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z',
+  check: 'M20 6 9 17l-5-5',
+  x: 'M18 6 6 18M6 6l12 12',
+  dot: 'M12 8v4M12 16h.01',
+  sun: 'M12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41',
+  moon: 'M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z',
+  monitor: 'M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM8 21h8M12 17v4'
+};
+function tok(k) { return { fg: 'var(--' + k + '-fg)', bg: 'var(--' + k + '-bg)', dot: 'var(--' + k + '-dot)' }; }
+var OK = tok('ok'), WARN = tok('warn'), BAD = tok('bad'), ERR = tok('err'), HOLD = tok('hold'), NONE = tok('none'), ACC = tok('acc');
+var V = {
+  thumb:     { label: 'Thumbs up',       fg: OK.fg,   bg: OK.bg,   icon: I.thumb },
+  clean:     { label: 'No major issues', fg: OK.fg,   bg: OK.bg,   icon: I.checkc },
+  reviewing: { label: 'Reviewing',       fg: WARN.fg, bg: WARN.bg, icon: I.eye },
+  conflict:  { label: 'Merge conflict',  fg: BAD.fg,  bg: BAD.bg,  icon: I.tri },
+  failed:    { label: 'Lookup failed',   fg: ERR.fg,  bg: ERR.bg,  icon: I.help },
+  held:      { label: "Don't merge",     fg: HOLD.fg, bg: HOLD.bg, icon: I.oct },
+  none:      { label: 'Awaiting Codex',  fg: NONE.fg, bg: NONE.bg, icon: I.clock }
+};
+var S = {
+  queued:  { label: 'Queued',  fg: ACC.fg,         dot: ACC.dot },
+  merging: { label: 'Merging', fg: OK.fg,          dot: OK.dot },
+  open:    { label: 'Open',    fg: 'var(--text-3)', dot: 'var(--open-dot)' },
+  draft:   { label: 'Draft',   fg: 'var(--muted)', dot: 'var(--draft-dot)' }
+};
+var REPOS = [
+  { id: 'prherd',  owner: 'pacnpal',    name: 'prherd',     mono: 'P', tint: '#4F46E5', polled: 'Polled 18s ago' },
+  { id: 'airtime', owner: 'pacnpal',    name: 'airtime',    mono: 'A', tint: '#0F766E', polled: 'Polled 18s ago' },
+  { id: 'tw',      owner: 'thrillwiki', name: 'thrillwiki', mono: 'T', tint: '#C2410C', polled: 'Polled 19s ago' },
+  { id: 'mcp',     owner: 'thrillwiki', name: 'mcp',        mono: 'M', tint: '#7C3AED', polled: 'Polled 19s ago' }
+];
+var AUTHORS = {
+  'pacnpal':    { initials: 'PN', bg: 'var(--avatar)' },
+  'dependabot': { initials: 'DB', bg: '#0366D6' },
+  'sam-ortiz':  { initials: 'SO', bg: '#B45309' },
+  'lee-park':   { initials: 'LP', bg: '#0F766E' },
+  'mira-k':     { initials: 'MK', bg: '#9D174D' }
+};
+var PRS = [
+  { repo: 'prherd',  num: 14,   title: 'Menu bar extra with live merge countdown', branch: 'feat/menu-bar',       author: 'pacnpal',    v: 'thumb',     s: 'queued',  sha: '3f9a2c1', checks: '6/6 checks', age: '2m' },
+  { repo: 'prherd',  num: 13,   title: 'Persist column widths between launches',    branch: 'fix/column-widths',   author: 'pacnpal',    v: 'reviewing', s: 'open',    sha: 'a81d07e', checks: '4/6 running', age: '6m' },
+  { repo: 'prherd',  num: 12,   title: 'Bump actions/checkout from 4 to 5',         branch: 'dependabot/checkout', author: 'dependabot', v: 'clean',     s: 'queued',  sha: '0c4e9b2', checks: '6/6 checks', age: '11m' },
+  { repo: 'airtime', num: 231,  title: 'Offline queue for ride-time submissions',   branch: 'feat/offline-queue',  author: 'sam-ortiz',  v: 'conflict',  s: 'open',    sha: '77b2e10', checks: '5/6 checks', age: '24m' },
+  { repo: 'airtime', num: 229,  title: 'Retry wire-contract fetch with backoff',    branch: 'fix/contract-retry',  author: 'lee-park',   v: 'none',      s: 'open',    sha: 'd4417fa', checks: '6/6 checks', age: '38m' },
+  { repo: 'airtime', num: 226,  title: 'Flutter 3.32 migration',                    branch: 'chore/flutter-3-32',  author: 'pacnpal',    v: 'none',      s: 'draft',   sha: '9be0c33', checks: '2/6 checks', age: '3h' },
+  { repo: 'tw',      num: 4812, title: 'Moderation queue: claim lock timeout',      branch: 'fix/claim-timeout',   author: 'mira-k',     v: 'held',      s: 'open',    sha: 'e02b7c9', checks: '9/9 checks', age: '52m' },
+  { repo: 'tw',      num: 4809, title: 'Park area serializer gains sort order',     branch: 'feat/area-order',     author: 'pacnpal',    v: 'thumb',     s: 'queued',  sha: '5a6f310', checks: '7/9 running', age: '1h' },
+  { repo: 'tw',      num: 4801, title: 'Upgrade PostGIS to 3.5',                    branch: 'chore/postgis-3-5',   author: 'lee-park',   v: 'failed',    s: 'open',    sha: 'b19c2e4', checks: '9/9 checks', age: '2h' },
+  { repo: 'mcp',     num: 88,   title: 'Add list_park_areas tool',                  branch: 'feat/park-areas',     author: 'pacnpal',    v: 'clean',     s: 'merging', sha: 'c7f0a58', checks: '4/4 checks', age: '9m' },
+  { repo: 'mcp',     num: 86,   title: 'Stream search results over HTTP',           branch: 'feat/stream-search',  author: 'mira-k',     v: 'reviewing', s: 'open',    sha: '2e8d6b1', checks: '4/4 checks', age: '17m' }
+];
+var FILTERS = [
+  { key: 'all',       label: 'All open',        icon: I.inbox,  color: 'var(--text-3)', test: function () { return true; } },
+  { key: 'ready',     label: 'Ready to merge',  icon: I.checkc, color: OK.dot,   test: function (p) { return p.v === 'thumb' || p.v === 'clean'; } },
+  { key: 'reviewing', label: 'Codex reviewing', icon: I.eye,    color: WARN.dot, test: function (p) { return p.v === 'reviewing'; } },
+  { key: 'attention', label: 'Needs attention', icon: I.tri,    color: BAD.dot,  test: function (p) { return p.v === 'conflict' || p.v === 'failed'; } },
+  { key: 'waiting',   label: 'Awaiting Codex',  icon: I.clock,  color: 'var(--muted)', test: function (p) { return p.v === 'none'; } },
+  { key: 'held',      label: "Don't merge",     icon: I.oct,    color: HOLD.fg,  test: function (p) { return p.v === 'held'; } }
+];
+var LOG0 = [
+  { time: '14:09:12', kind: 'merge',  subject: 'pacnpal/prherd #14', text: 'queued for squash merge at 3f9a2c1 — waiting on required checks.' },
+  { time: '14:08:55', kind: 'codex',  subject: 'thrillwiki/thrillwiki #4809', text: 'Codex gave a thumbs-up after the latest push. Go-ahead accepted.' },
+  { time: '14:08:40', kind: 'warn',   subject: 'pacnpal/airtime #231', text: 'conflicts with main. Left one comment on 77b2e10.' },
+  { time: '14:07:02', kind: 'review', subject: 'thrillwiki/mcp #86', text: 'Codex review requested.' },
+  { time: '14:05:10', kind: 'error',  subject: 'thrillwiki/thrillwiki #4801', text: 'verdict lookup failed (HTTP 502). Retrying next poll.' },
+  { time: '14:04:00', kind: 'poll',   subject: 'Polled 4 repos', text: '· 11 open pull requests · 1.8s' }
+];
+var LOGSTYLE = {
+  merge:  { fg: ACC.fg,  bg: ACC.bg,  icon: I.merge },
+  codex:  { fg: OK.fg,   bg: OK.bg,   icon: I.thumb },
+  warn:   { fg: BAD.fg,  bg: BAD.bg,  icon: I.tri },
+  review: { fg: WARN.fg, bg: WARN.bg, icon: I.spark },
+  error:  { fg: ERR.fg,  bg: ERR.bg,  icon: I.help },
+  poll:   { fg: 'var(--text-3)', bg: 'var(--hover)', icon: I.refresh }
+};
+var PASS = { fg: OK.fg, bg: OK.bg, icon: I.check };
+var WAIT = { fg: WARN.fg, bg: WARN.bg, icon: I.dot };
+var FAIL = { fg: BAD.fg, bg: BAD.bg, icon: I.x };
+
+function repoOf(id) { for (var i = 0; i < REPOS.length; i++) if (REPOS[i].id === id) return REPOS[i]; return REPOS[0]; }
+function keyOf(p) { return p.repo + '#' + p.num; }
+function chk(st, label, note) { return { fg: st.fg, bg: st.bg, icon: st.icon, label: label, note: note }; }
+
+function readiness(p) {
+  var running = p.checks.indexOf('running') >= 0;
+  var cleared = p.v === 'thumb' || p.v === 'clean' || p.v === 'held';
+  var go = cleared ? chk(PASS, 'Codex go-ahead on the current head', (p.v === 'clean' ? 'Receipt names ' : 'Newer than ') + p.sha)
+    : p.v === 'reviewing' ? chk(WAIT, 'Codex is reviewing', 'Its verdict lands on the next poll')
+    : p.v === 'failed' ? chk(FAIL, "Couldn't read Codex's verdict", 'GitHub returned an error; retrying')
+    : p.v === 'conflict' ? chk(WAIT, 'Not checked while conflicting', 'Resolve the conflict first')
+    : chk(WAIT, 'No go-ahead yet', 'Request a Codex review to get one');
+  return [
+    go,
+    p.v === 'conflict' ? chk(FAIL, 'Conflicts with main', 'Commented once on ' + p.sha) : chk(PASS, 'No conflicts with main', 'Mergeable as of the last poll'),
+    p.v === 'held' ? chk(FAIL, 'Labeled do-not-merge', 'Allow merge to release it') : chk(PASS, 'Not labeled do-not-merge', ''),
+    p.s === 'draft' ? chk(WAIT, 'Draft pull request', 'Mark ready for review on GitHub') : running ? chk(WAIT, 'Required checks running', p.checks) : chk(PASS, 'Required checks', p.checks)
+  ];
+}
+
+function story(p) {
+  var grey = 'var(--open-dot)';
+  var t = [{ text: 'Head ' + p.sha + ' pushed', time: '13:58', dot: grey }, { text: 'Check suite started', time: '13:59', dot: grey }];
+  if (p.v === 'thumb') t.push({ text: 'Codex gave a thumbs-up', time: '14:08', dot: OK.dot });
+  if (p.v === 'clean') t.push({ text: 'Codex: no major issues on ' + p.sha, time: '14:06', dot: OK.dot });
+  if (p.v === 'reviewing') t.push({ text: 'Codex started reviewing', time: '14:07', dot: WARN.dot });
+  if (p.v === 'conflict') t.push({ text: 'main moved; conflict comment posted', time: '14:08', dot: BAD.dot });
+  if (p.v === 'failed') t.push({ text: 'Verdict lookup failed (HTTP 502)', time: '14:05', dot: ERR.dot });
+  if (p.v === 'held') t.push({ text: 'Labeled do-not-merge by pacnpal', time: '14:01', dot: HOLD.fg });
+  if (p.s === 'queued') t.push({ text: 'Squash merge queued behind checks', time: '14:09', dot: ACC.dot });
+  if (p.s === 'merging') t.push({ text: 'Merging into main', time: '14:09', dot: ACC.dot });
+  return t.map(function (e, i) { return { text: e.text, time: e.time, dot: e.dot, line: i === t.length - 1 ? 'transparent' : 'var(--line)' }; });
+}
+
+function headline(p) {
+  if (p.v === 'held') return ["Held — won't merge", 'Labeled do-not-merge. prherd skips it and cancels any queued auto-merge.'];
+  if (p.v === 'conflict') return ['Blocked by a merge conflict', 'Update the branch or resolve locally. Codex will need to review the new head.'];
+  if (p.v === 'failed') return ["Couldn't read Codex's verdict", 'GitHub returned an error. prherd retries on the next poll.'];
+  if (p.v === 'reviewing') return ['Codex is reviewing', 'If it clears this head, prherd merges on the poll after.'];
+  if (p.v === 'none') return [p.s === 'draft' ? 'Draft — not merging yet' : 'Waiting for Codex', 'No go-ahead newer than ' + p.sha + '. Request a review to start one.'];
+  if (p.s === 'merging') return ['Merging now', 'Squash-merging ' + p.sha + ' into main.'];
+  return ['Cleared — queued to merge', 'Squash merge is queued at ' + p.sha + ' and lands once required checks pass.'];
+}
+
+function now() { var d = new Date(); function z(n) { return (n < 10 ? '0' : '') + n; } return z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds()); }
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { theme: null, filter: 'all', repo: null, selected: 'prherd#14', checked: {}, auto: true, mode: 'queue', secs: 42, showLog: true, query: '', log: LOG0 };
+  }
+  componentDidMount() {
+    var self = this;
+    this.timer = setInterval(function () {
+      var iv = self.props.interval ?? 60;
+      var s = self.state.secs;
+      if (s <= 1) {
+        var entry = { time: now(), kind: 'poll', subject: 'Polled 4 repos', text: '· 11 open pull requests · 1.6s' };
+        self.setState({ secs: iv, log: [entry].concat(self.state.log).slice(0, 7) });
+      } else {
+        self.setState({ secs: s - 1 });
+      }
+    }, 1000);
+  }
+  componentWillUnmount() { clearInterval(this.timer); }
+  renderVals() {
+    var self = this, st = this.state;
+    var accent = this.props.accent ?? '#4F46E5';
+    var iv = this.props.interval ?? 60;
+    var theme = st.theme || (this.props.theme ?? DEFAULT_THEME);
+    var q = (st.query || '').toLowerCase();
+    var filt = FILTERS.filter(function (f) { return f.key === st.filter; })[0] || FILTERS[0];
+    var visible = PRS.filter(function (p) {
+      if (st.repo && p.repo !== st.repo) return false;
+      if (!filt.test(p)) return false;
+      if (q && (p.title + ' ' + p.branch + ' ' + p.author + ' ' + p.num).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    var nChecked = visible.filter(function (p) { return st.checked[keyOf(p)]; }).length;
+    var groups = REPOS.map(function (r) {
+      var rows = visible.filter(function (p) { return p.repo === r.id; }).map(function (p) {
+        var k = keyOf(p), on = st.selected === k, a = AUTHORS[p.author];
+        return {
+          num: p.num, title: p.title, branch: p.branch, author: p.author, sha: p.sha, age: p.age, checksLabel: p.checks,
+          v: V[p.v], s: S[p.s], initials: a.initials, avatarBg: a.bg,
+          rowBg: on ? accent + '1F' : (st.checked[k] ? 'var(--chk)' : 'var(--win)'),
+          rowRing: on ? 'inset 3px 0 0 ' + accent : 'none',
+          checked: !!st.checked[k],
+          toggle: function () { var c = Object.assign({}, self.state.checked); c[k] = !c[k]; self.setState({ checked: c }); },
+          pick: function () { self.setState({ selected: k }); }
+        };
+      });
+      var total = PRS.filter(function (p) { return p.repo === r.id; }).length;
+      return { full: r.owner + '/' + r.name, mono: r.mono, tint: r.tint, polled: r.polled, rows: rows, countLabel: rows.length + ' of ' + total };
+    }).filter(function (g) { return g.rows.length > 0; });
+
+    var filters = FILTERS.map(function (f) {
+      var on = f.key === st.filter;
+      return {
+        label: f.label, icon: f.icon, iconColor: f.color, on: on,
+        count: PRS.filter(function (p) { return (!st.repo || p.repo === st.repo) && f.test(p); }).length,
+        bg: on ? 'var(--side-on)' : 'transparent', weight: on ? 600 : 500,
+        pick: function () { self.setState({ filter: f.key }); }
+      };
+    });
+    var repoNav = REPOS.map(function (r) {
+      var mine = PRS.filter(function (p) { return p.repo === r.id; });
+      var bad = mine.some(function (p) { return p.v === 'conflict' || p.v === 'failed'; });
+      var on = st.repo === r.id;
+      return {
+        name: r.name, owner: r.owner, mono: r.mono, tint: r.tint, count: mine.length, on: on,
+        bg: on ? 'var(--side-on)' : 'transparent', weight: on ? 600 : 500,
+        health: bad ? BAD.dot : OK.dot, healthLabel: bad ? 'Needs attention' : 'Healthy',
+        pick: function () { self.setState({ repo: on ? null : r.id }); }
+      };
+    });
+
+    var selP = PRS.filter(function (p) { return keyOf(p) === st.selected; })[0] || PRS[0];
+    var selR = repoOf(selP.repo), hl = headline(selP);
+    var sel = {
+      repo: selR.owner + '/' + selR.name, mono: selR.mono, tint: selR.tint, num: selP.num, title: selP.title, branch: selP.branch,
+      v: V[selP.v], headline: hl[0], detail: hl[1], checks: readiness(selP), timeline: story(selP),
+      holdLabel: selP.v === 'held' ? 'Allow merge' : "Don't merge"
+    };
+
+    function seg(on) { return { bg: on ? 'var(--seg-on)' : 'transparent', fg: on ? 'var(--text)' : 'var(--muted)', shadow: on ? 'var(--seg-shadow)' : 'none' }; }
+    var modes = [
+      { key: 'queue', label: 'Queue', hint: 'Queue with gh --auto behind required checks' },
+      { key: 'force', label: 'Force', hint: 'Merge immediately; branch protection still applies' },
+      { key: 'admin', label: 'Admin', hint: 'Merge with admin rights, bypassing branch protection' }
+    ].map(function (m) {
+      var on = st.mode === m.key, s = seg(on);
+      return { label: m.label, hint: m.hint, on: on, bg: s.bg, fg: s.fg, shadow: s.shadow, pick: function () { self.setState({ mode: m.key }); } };
+    });
+    var themes = [
+      { key: 'light', label: 'Light', icon: I.sun },
+      { key: 'dark', label: 'Dark', icon: I.moon },
+      { key: 'system', label: 'Auto', icon: I.monitor }
+    ].map(function (t) {
+      var on = theme === t.key, s = seg(on);
+      return { label: t.label, icon: t.icon, on: on, bg: s.bg, fg: s.fg, shadow: s.shadow, pick: function () { self.setState({ theme: t.key }); } };
+    });
+
+    var circ = 50.27;
+    var heading = st.repo ? (repoOf(st.repo).owner + '/' + repoOf(st.repo).name) : filt.label;
+    if (st.repo && st.filter !== 'all') heading = heading + ' · ' + filt.label;
+    var count = function (fn) { return PRS.filter(fn).length; };
+
+    return {
+      themeClass: 'ph-' + theme, themes: themes,
+      accent: accent, interval: iv, secs: st.secs, query: st.query,
+      ring: (circ * st.secs / iv).toFixed(2) + ' ' + circ,
+      onQuery: function (e) { self.setState({ query: e.target.value }); },
+      modes: modes, isAdmin: st.mode === 'admin',
+      auto: st.auto, paused: !st.auto,
+      switchBg: st.auto ? accent : 'var(--knob-off)', knobLeft: st.auto ? 14 : 2,
+      toggleAuto: function () { self.setState({ auto: !self.state.auto }); },
+      pollNow: function () { self.setState({ secs: iv, log: [{ time: now(), kind: 'poll', subject: 'Polled 4 repos', text: '· 11 open pull requests · 1.7s' }].concat(self.state.log).slice(0, 7) }); },
+      filters: filters, repoNav: repoNav, groups: groups, isEmpty: groups.length === 0,
+      heading: heading,
+      subheading: visible.length + ' open across ' + groups.length + (groups.length === 1 ? ' repository' : ' repositories') + ' · merging squash commits as Codex clears them',
+      stats: [
+        { label: 'Ready', value: count(FILTERS[1].test), dot: OK.dot },
+        { label: 'Reviewing', value: count(FILTERS[2].test), dot: WARN.dot },
+        { label: 'Attention', value: count(FILTERS[3].test), dot: BAD.dot },
+        { label: 'Merged today', value: 7, dot: accent }
+      ],
+      rowPad: (this.props.density ?? 'comfortable') === 'compact' ? 7 : 12,
+      hasChecked: nChecked > 0, checkedCount: nChecked,
+      clearChecked: function () { self.setState({ checked: {} }); },
+      showLog: st.showLog, logChevron: st.showLog ? 0 : -90,
+      toggleLog: function () { self.setState({ showLog: !self.state.showLog }); },
+      log: st.log.map(function (e) { var k = LOGSTYLE[e.kind]; return { time: e.time, subject: e.subject, text: e.text, fg: k.fg, bg: k.bg, icon: k.icon }; }),
+      showInspector: this.props.showInspector ?? true,
+      sel: sel
+    };
+  }
+}
+</script>
+</body>
+</html>

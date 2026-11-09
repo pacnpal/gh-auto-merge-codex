@@ -1,0 +1,27 @@
+{
+  "v": 3,
+  "createdOnFiles": {"v": 1, "at": "2026-11-09T18:00:00Z"},
+  "title": "prherd — Polished App Redesign",
+  "launch": {"view": "canvas"},
+  "pages": [],
+  "boards": {
+    "Main.dc.html": {"x": 0, "y": 0, "w": 1440, "h": 1120, "title": "Main window", "expand": "fill", "is_interactive": true},
+    "MainDark.dc.html": {"x": 1520, "y": 0, "w": 1440, "h": 1120, "title": "Main window — dark", "expand": "fill", "is_interactive": true},
+    "Settings.dc.html": {"x": 3040, "y": 0, "w": 880, "h": 640, "title": "Settings", "is_interactive": true},
+    "SettingsDark.dc.html": {"x": 3040, "y": 760, "w": 880, "h": 640, "title": "Settings — dark", "is_interactive": true},
+    "ContextMenu.dc.html": {"x": 0, "y": 1660, "w": 560, "h": 560, "title": "Right-click menu"},
+    "MergeNow.dc.html": {"x": 640, "y": 1660, "w": 640, "h": 560, "title": "Merge now confirmation", "is_interactive": true},
+    "FirstRun.dc.html": {"x": 1360, "y": 1660, "w": 960, "h": 640, "title": "First run", "is_interactive": true},
+    "MenuBar.dc.html": {"x": 2400, "y": 1660, "w": 400, "h": 600, "title": "Menu bar extra"},
+    "ContextMenuDark.dc.html": {"x": 0, "y": 2660, "w": 560, "h": 560, "title": "Right-click menu — dark"},
+    "MergeNowDark.dc.html": {"x": 640, "y": 2660, "w": 640, "h": 560, "title": "Merge now confirmation — dark", "is_interactive": true},
+    "FirstRunDark.dc.html": {"x": 1360, "y": 2660, "w": 960, "h": 640, "title": "First run — dark", "is_interactive": true},
+    "MenuBarDark.dc.html": {"x": 2400, "y": 2660, "w": 400, "h": 600, "title": "Menu bar extra — dark"}
+  },
+  "order": ["Main.dc.html", "MainDark.dc.html", "Settings.dc.html", "SettingsDark.dc.html", "ContextMenu.dc.html", "MergeNow.dc.html", "FirstRun.dc.html", "MenuBar.dc.html", "ContextMenuDark.dc.html", "MergeNowDark.dc.html", "FirstRunDark.dc.html", "MenuBarDark.dc.html"],
+  "notes": {
+    "row2": {"x": 0, "y": 1400, "text": "Menus, sheets and other surfaces — light", "kind": "title1", "maxW": 2800},
+    "row3": {"x": 0, "y": 2400, "text": "Menus, sheets and other surfaces — dark", "kind": "title1", "maxW": 2800}
+  },
+  "designSystems": []
+}

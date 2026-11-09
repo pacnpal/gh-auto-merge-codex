@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>prherd — pull request context menu</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ph-light,.ph-system{color-scheme:light;--win:#FFFFFF;--group:#F6F6F8;--line-soft:#F0F0F3;--sep:#ECECF0;--text:#17181C;--text-3:#3D414C;--muted:#5A5F6B;--disabled:#8A8F9A;--menu:rgba(255,255,255,0.96);--menu-border:#DCDCE2;--menu-shadow:0 1px 2px rgba(16,17,20,0.08),0 16px 40px -8px rgba(16,17,20,0.28);--sel:#F3F2FD}
+.ph-dark{color-scheme:dark;--win:#16171B;--group:#1C1D22;--line-soft:#202127;--sep:#2E2F36;--text:#ECEDF0;--text-3:#B4B7C0;--muted:#959AA5;--disabled:#5F636D;--menu:rgba(32,33,39,0.97);--menu-border:#3A3B43;--menu-shadow:0 1px 2px rgba(0,0,0,0.4),0 18px 44px -8px rgba(0,0,0,0.75);--sel:#1F1F36}
+@media (prefers-color-scheme: dark){.ph-system{color-scheme:dark;--win:#16171B;--group:#1C1D22;--line-soft:#202127;--sep:#2E2F36;--text:#ECEDF0;--text-3:#B4B7C0;--muted:#959AA5;--disabled:#5F636D;--menu:rgba(32,33,39,0.97);--menu-border:#3A3B43;--menu-shadow:0 1px 2px rgba(0,0,0,0.4),0 18px 44px -8px rgba(0,0,0,0.75);--sel:#1F1F36}}
+a{color:#4338CA}
+button{font:inherit}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width: 560px; height: 560px; box-sizing: border-box; position: relative; overflow: hidden; background: var(--win); font-family: Inter, system-ui, sans-serif; color: var(--text); font-size: 13px; -webkit-font-smoothing: antialiased">
+
+  <div aria-hidden="true" style="display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 16px; border-bottom: 1px solid var(--line-soft)">
+      <span style="width: 18px; height: 18px; border-radius: 5px; background: #4F46E5; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700">P</span>
+      <span style="font-weight: 600; font-size: 12.5px">pacnpal/prherd</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted)">3 of 3</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line-soft); background: var(--sel); box-shadow: inset 3px 0 0 #4F46E5">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted)">#14</span>
+      <span style="font-weight: 500">Menu bar extra with live merge countdown</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line-soft); background: var(--sel)">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted)">#13</span>
+      <span style="font-weight: 500">Persist column widths between launches</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line-soft)">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted)">#12</span>
+      <span style="font-weight: 500">Bump actions/checkout from 4 to 5</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; height: 56px; padding: 0 16px; border-bottom: 1px solid var(--line-soft)">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--muted)">#231</span>
+      <span style="font-weight: 500">Offline queue for ride-time submissions</span>
+    </div>
+  </div>
+
+  <div role="menu" aria-label="2 pull requests selected" style="position: absolute; left: 196px; top: 104px; width: 276px; padding: 6px; box-sizing: border-box; background: var(--menu); border: 1px solid var(--menu-border); border-radius: 12px; box-shadow: var(--menu-shadow); display: flex; flex-direction: column; gap: 1px">
+    <div style="padding: 6px 10px 8px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted)">2 pull requests</div>
+
+    <button type="button" role="menuitem" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; cursor: pointer">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--text-3)"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+      <span style="flex: 1">Open in browser</span>
+      <kbd style="font-family: Inter, sans-serif; font-size: 11.5px; color: var(--muted)">⌘O</kbd>
+    </button>
+    <button type="button" role="menuitem" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; cursor: pointer">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--text-3)"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"></path></svg>
+      <span style="flex: 1">Copy links</span>
+      <kbd style="font-family: Inter, sans-serif; font-size: 11.5px; color: var(--muted)">⇧⌘C</kbd>
+    </button>
+
+    <div role="separator" style="height: 1px; margin: 5px 4px; background: var(--sep)"></div>
+
+    <a href="MergeNow.dc.html" role="menuitem" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border-radius: 7px; background: #4F46E5; color: #FFFFFF; text-decoration: none">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21V9a9 9 0 0 0 9 9"></path></svg>
+      <span style="flex: 1; font-weight: 500">Merge now…</span>
+      <kbd style="font-family: Inter, sans-serif; font-size: 11.5px; color: #E0E0FF">⌘↩</kbd>
+    </a>
+    <button type="button" role="menuitem" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; cursor: pointer">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--text-3)"><path d="M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2ZM8 12h8"></path></svg>
+      <span style="flex: 1">Don't merge</span>
+    </button>
+    <button type="button" role="menuitem" disabled="" aria-disabled="true" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--disabled); text-align: left; cursor: default">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4 12 14.01l-3-3"></path></svg>
+      <span style="flex: 1">Allow merge</span>
+    </button>
+
+    <div role="separator" style="height: 1px; margin: 5px 4px; background: var(--sep)"></div>
+
+    <button type="button" role="menuitem" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; cursor: pointer">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--text-3)"><path d="M12 19V5M5 12l7-7 7 7"></path></svg>
+      <span style="flex: 1">Update branch</span>
+    </button>
+    <button type="button" role="menuitem" style="display: flex; align-items: center; gap: 10px; height: 32px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); text-align: left; cursor: pointer">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="color: var(--text-3)"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9Z"></path></svg>
+      <span style="flex: 1">Request Codex review</span>
+      <kbd style="font-family: Inter, sans-serif; font-size: 11.5px; color: var(--muted)">⌘R</kbd>
+    </button>
+
+    <div style="margin: 6px 4px 2px; padding: 8px 10px; border-radius: 8px; background: var(--group); font-size: 11.5px; color: var(--text-3); line-height: 1.45">Update branch adds a commit, so Codex has to review again before prherd merges.</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"system","options":["system","light","dark"]},"$preview":{"width":560,"height":560}}'>
+var DEFAULT_THEME = 'system';
+class Component extends DCLogic {
+  renderVals() { return { themeClass: 'ph-' + (this.props.theme ?? DEFAULT_THEME) }; }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>prherd — menu bar extra, dark</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ph-light,.ph-system{color-scheme:light;--desk:#DADBE2;--pop:rgba(250,250,252,0.97);--pop-border:#CFCFD7;--pop-shadow:0 20px 40px -12px rgba(16,17,20,0.35);--pop-foot:#F4F4F7;--card:#FFFFFF;--card-line:#E8E8ED;--line:#E6E6EB;--field:#FFFFFF;--field-border:#DEDEE4;--text:#17181C;--text-3:#3D414C;--muted:#5A5F6B;--inv:#17181C;--inv-fg:#FFFFFF;--ok-fg:#1D6B36;--ok-bg:#E5F4EA;--warn-fg:#7A4F00;--bad-fg:#A3191F;--bad-bg:#FDE7E7;--err-fg:#8F3A00;--err-bg:#FFE9D9;--acc-fg:#3730A3;--acc-bg:#EEF0FF}
+.ph-dark{color-scheme:dark;--desk:#2A2B33;--pop:rgba(28,29,34,0.97);--pop-border:#3A3B43;--pop-shadow:0 0 0 1px rgba(0,0,0,0.4),0 24px 48px -12px rgba(0,0,0,0.8);--pop-foot:#1A1B20;--card:#24252C;--card-line:#30313A;--line:#2E2F36;--field:#24252C;--field-border:#3A3B43;--text:#ECEDF0;--text-3:#B4B7C0;--muted:#959AA5;--inv:#ECEDF0;--inv-fg:#16171B;--ok-fg:#7BD9A4;--ok-bg:#15301F;--warn-fg:#F2C462;--bad-fg:#FF9494;--bad-bg:#3A1A1C;--err-fg:#FFB27A;--err-bg:#3A2312;--acc-fg:#B4B6FF;--acc-bg:#23244A}
+@media (prefers-color-scheme: dark){.ph-system{color-scheme:dark;--desk:#2A2B33;--pop:rgba(28,29,34,0.97);--pop-border:#3A3B43;--pop-shadow:0 0 0 1px rgba(0,0,0,0.4),0 24px 48px -12px rgba(0,0,0,0.8);--pop-foot:#1A1B20;--card:#24252C;--card-line:#30313A;--line:#2E2F36;--field:#24252C;--field-border:#3A3B43;--text:#ECEDF0;--text-3:#B4B7C0;--muted:#959AA5;--inv:#ECEDF0;--inv-fg:#16171B;--ok-fg:#7BD9A4;--ok-bg:#15301F;--warn-fg:#F2C462;--bad-fg:#FF9494;--bad-bg:#3A1A1C;--err-fg:#FFB27A;--err-bg:#3A2312;--acc-fg:#B4B6FF;--acc-bg:#23244A}}
+a{color:#4338CA}
+button{font:inherit}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width: 400px; height: 600px; box-sizing: border-box; padding: 12px; background: var(--desk); font-family: Inter, system-ui, sans-serif; color: var(--text); font-size: 13px; -webkit-font-smoothing: antialiased">
+  <div style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; background: var(--pop); border: 1px solid var(--pop-border); border-radius: 14px; box-shadow: var(--pop-shadow); overflow: hidden">
+
+    <div style="display: flex; align-items: center; gap: 10px; padding: 14px 14px 12px">
+      <svg width="24" height="24" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="7" fill="#4F46E5"></rect><path d="M8 9.5 L19.5 14 M8 18.5 L19.5 14" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" fill="none"></path><circle cx="8" cy="9.5" r="2.6" fill="#FFFFFF"></circle><circle cx="8" cy="18.5" r="2.6" fill="#FFFFFF"></circle><circle cx="19.5" cy="14" r="3.2" fill="#FFFFFF"></circle></svg>
+      <div style="flex: 1; display: flex; flex-direction: column">
+        <span style="font-weight: 700; font-size: 13.5px">prherd</span>
+        <span style="font-size: 11.5px; color: var(--muted)">4 repos · next poll in 42s</span>
+      </div>
+      <button type="button" role="switch" aria-checked="true" aria-label="Auto-merge" style="display: flex; align-items: center; gap: 8px; border: 0; background: transparent; cursor: pointer; padding: 4px; color: var(--text-3); font-size: 12px; font-weight: 500">
+        Auto-merge
+        <span style="position: relative; width: 30px; height: 18px; border-radius: 9px; background: #4F46E5"><span style="position: absolute; top: 2px; left: 14px; width: 14px; height: 14px; border-radius: 50%; background: #FFFFFF; box-shadow: 0 1px 2px rgba(0,0,0,0.25)"></span></span>
+      </button>
+    </div>
+
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0 14px 12px">
+      <div style="padding: 8px 10px; border-radius: 9px; background: var(--card); border: 1px solid var(--card-line)">
+        <div style="font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums">4</div>
+        <div style="font-size: 11px; color: var(--ok-fg); font-weight: 500">Ready</div>
+      </div>
+      <div style="padding: 8px 10px; border-radius: 9px; background: var(--card); border: 1px solid var(--card-line)">
+        <div style="font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums">2</div>
+        <div style="font-size: 11px; color: var(--warn-fg); font-weight: 500">Reviewing</div>
+      </div>
+      <div style="padding: 8px 10px; border-radius: 9px; background: var(--card); border: 1px solid var(--card-line)">
+        <div style="font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums">2</div>
+        <div style="font-size: 11px; color: var(--bad-fg); font-weight: 500">Need you</div>
+      </div>
+    </div>
+
+    <div style="flex: 1; min-height: 0; overflow: auto; border-top: 1px solid var(--line); padding: 10px 8px">
+      <div style="padding: 2px 8px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted)">Needs you</div>
+      <a href="MainDark.dc.html" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; color: var(--text); text-decoration: none">
+        <span style="width: 24px; height: 24px; flex: none; border-radius: 7px; background: var(--bad-bg); color: var(--bad-fg); display: flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0ZM12 9v4M12 17h.01"></path></svg></span>
+        <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+          <span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Offline queue for ride-time submissions</span>
+          <span style="font-size: 11.5px; color: var(--muted)">airtime <span style="font-family: 'JetBrains Mono', monospace">#231</span> · merge conflict</span>
+        </span>
+      </a>
+      <a href="MainDark.dc.html" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; color: var(--text); text-decoration: none">
+        <span style="width: 24px; height: 24px; flex: none; border-radius: 7px; background: var(--err-bg); color: var(--err-fg); display: flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20ZM9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"></path></svg></span>
+        <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+          <span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Upgrade PostGIS to 3.5</span>
+          <span style="font-size: 11.5px; color: var(--muted)">thrillwiki <span style="font-family: 'JetBrains Mono', monospace">#4801</span> · lookup failed</span>
+        </span>
+      </a>
+
+      <div style="padding: 12px 8px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted)">Merging soon</div>
+      <a href="MainDark.dc.html" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; color: var(--text); text-decoration: none">
+        <span style="width: 24px; height: 24px; flex: none; border-radius: 7px; background: var(--acc-bg); color: var(--acc-fg); display: flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21V9a9 9 0 0 0 9 9"></path></svg></span>
+        <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+          <span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Menu bar extra with live merge countdown</span>
+          <span style="font-size: 11.5px; color: var(--muted)">prherd <span style="font-family: 'JetBrains Mono', monospace">#14</span> · queued behind checks</span>
+        </span>
+      </a>
+      <a href="MainDark.dc.html" style="display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 8px; color: var(--text); text-decoration: none">
+        <span style="width: 24px; height: 24px; flex: none; border-radius: 7px; background: var(--ok-bg); color: var(--ok-fg); display: flex; align-items: center; justify-content: center"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM6 21V9a9 9 0 0 0 9 9"></path></svg></span>
+        <span style="flex: 1; min-width: 0; display: flex; flex-direction: column">
+          <span style="font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">Add list_park_areas tool</span>
+          <span style="font-size: 11.5px; color: var(--muted)">mcp <span style="font-family: 'JetBrains Mono', monospace">#88</span> · merging now</span>
+        </span>
+      </a>
+
+      <div style="padding: 12px 8px 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted)">Merged today</div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12px; color: var(--text-3)">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); width: 40px">13:41</span>
+        <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">prherd #11 · Rename the project to prherd</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 6px 8px; font-size: 12px; color: var(--text-3)">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); width: 40px">12:17</span>
+        <span style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">thrillwiki #4794 · Ride model variant search</span>
+      </div>
+    </div>
+
+    <div style="display: flex; align-items: center; gap: 6px; padding: 10px; border-top: 1px solid var(--line); background: var(--pop-foot)">
+      <a href="MainDark.dc.html" style="flex: 1; display: flex; align-items: center; justify-content: center; height: 34px; border-radius: 8px; background: var(--inv); color: var(--inv-fg); text-decoration: none; font-weight: 600; font-size: 12.5px">Open prherd</a>
+      <button type="button" style="height: 34px; padding: 0 12px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--text); cursor: pointer; font-size: 12.5px; font-weight: 500">Poll now</button>
+      <button type="button" style="height: 34px; padding: 0 12px; border: 1px solid var(--field-border); border-radius: 8px; background: var(--field); color: var(--text); cursor: pointer; font-size: 12.5px; font-weight: 500">Pause 1h</button>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","default":"dark","options":["system","light","dark"]},"$preview":{"width":400,"height":600}}'>
+var DEFAULT_THEME = 'dark';
+class Component extends DCLogic {
+  renderVals() { return { themeClass: 'ph-' + (this.props.theme ?? DEFAULT_THEME) }; }
+}
+</script>
+</body>
+</html>
