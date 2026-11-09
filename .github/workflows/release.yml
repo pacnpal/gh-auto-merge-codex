@@ -125,6 +125,7 @@ jobs:
           tag-pattern: 'v[0-9]*'
           title-template: '{tag} - {title}'
           use-github-notes: false  # needs contents: write, which a pull request run doesn't get
+          append-changelog-link: false  # the preview's tag doesn't exist, so the link would 404
       - name: Show them in the run summary
         env:
           TITLE: ${{ steps.notes.outputs.title }}

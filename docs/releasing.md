@@ -77,8 +77,10 @@ writes the title and notes from every commit since the previous `v*` tag (merge 
 left out). It uses free OpenRouter models with `OPENROUTER_API_KEY`:
 
 - The title is `v1.2.0 - ` plus a short summary of the release.
-- **Breaking changes come first.** Any commit marked `feat!:` or carrying a
-  `BREAKING CHANGE:` footer is always listed there, with what to do when upgrading.
+- **Breaking changes come first.** Commits marked `feat!:` or carrying a
+  `BREAKING CHANGE:` footer are sent to the model as ones it must list there, with what
+  to do when upgrading. If it leaves one out, the action only logs a warning, so check
+  the run's log for it and that each flagged change made it into the notes.
 - Then come New Features, Bug Fixes, Performance, Documentation and Maintenance, as they
   apply, and the Full Changelog link.
 - The workflow adds the download table under the notes.
