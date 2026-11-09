@@ -1,6 +1,11 @@
+<img src="assets/prherd.png" alt="" width="96" align="right">
+
 # prherd
+[![Release](https://github.com/pacnpal/prherd/actions/workflows/release.yml/badge.svg)](https://github.com/pacnpal/prherd/actions/workflows/release.yml)
 
 Watch GitHub repos' open PRs and squash-merge each one Codex has cleared.
+
+![The prherd window watching three demo repos: each pull request with its Codex verdict, author and state, over the activity log](docs/screenshots/main.png)
 
 Codex (`chatgpt-codex-connector`) signals "reviewed, no findings" in one of two
 ways, neither of which is a review or a status check:
@@ -20,10 +25,20 @@ it. Request a new Codex review to get a fresh one.
 
 A PR labeled `do-not-merge` is left alone (see [Don't merge](#dont-merge)).
 
-## Requirements
+## Install
 
-Python 3 with tkinter (the python.org macOS installer includes it), plus
-`gh` ([GitHub CLI](https://cli.github.com)) 2.48 or newer, authenticated with merge rights on the repos.
+Every way of running prherd needs `gh` ([GitHub CLI](https://cli.github.com)) 2.48 or
+newer, authenticated with merge rights on the repos.
+
+- **Download an app** from [Releases](https://github.com/pacnpal/prherd/releases/latest):
+  a `.dmg` for macOS (Apple silicon), a `.zip` for Windows (x64) or a `.tar.gz` for
+  Linux (x64). Each is self-contained, so it needs no Python. The macOS app finds a `gh`
+  installed with Homebrew even when opened from Finder.
+- **Run from source:** Python 3 with tkinter (the python.org macOS installer includes
+  it), then `./prherd.py`.
+
+Releases are built, signed and published by GitHub Actions; see
+[docs/releasing.md](docs/releasing.md).
 
 ## Usage
 
@@ -83,6 +98,7 @@ file can't be parsed, the tool exits instead of overwriting it. If only the old
 | `--admin` | Merge with administrator privileges and bypass branch protection. |
 | `--interval N` | Positive polling interval in seconds. Defaults to `60`, or to the saved interval in the window. |
 | `--headless` | Run without a window, logging to stdout. With no `repo`, uses `REPO` or the current directory's repository. |
+| `--version` | Print the version. A source checkout says `0.0.0-dev`. |
 | `-h`, `--help` | Print command usage. |
 
 ### Environment variables
@@ -173,8 +189,12 @@ it, or from GitHub's web UI. Removing the label makes the PR eligible again on t
 ## Check
 
 ```sh
-python3 -m unittest test_prherd
+python3 -m unittest test_prherd test_release_notes
 ```
+
+The screenshot above is taken by the Screenshots workflow, which runs the real window
+on a virtual display against demo data (`scripts/screenshots.sh`). It's refreshed on
+every push to `main` that touches the app.
 
 ## Caveat
 
