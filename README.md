@@ -77,7 +77,7 @@ work too).
   list only its PRs, and again to list them all.
 - **+**: opens a field. Type `owner/repo` or a path and press Enter. You can monitor any number of repos at once.
 - **Right-click a repo** (here or in the list): Open in browser, Copy link, Refresh (without merging), and Remove repo.
-- The account `gh` is signed in as is at the bottom.
+- At the bottom: the account `gh` is signed in as, and the button that opens [Settings](#settings).
 
 **Pull requests**
 
@@ -112,17 +112,50 @@ error, poll, or info. Click **Activity** to collapse or expand it. Its header sh
 is off, and how long until the next poll.
 
 The window follows the system's light or dark appearance, and switches within a poll interval when the
-system does. To pin it, set `"appearance"` to `"light"` or `"dark"` in the settings file below
-(`"system"` is the default).
+system does. To pin it, choose Light or Dark in [Settings](#settings) (in the settings file below, that's
+`"appearance"` set to `"light"` or `"dark"`; `"system"` is the default).
 
 The window saves its repo list, merge mode, interval, Auto-merge setting,
-appearance, size, chosen view, sidebar width, and whether the activity log is
-collapsed to `$XDG_CONFIG_HOME/prherd.json` (default
+appearance, size, chosen view, sidebar width, whether the activity log is
+collapsed, and the notification switches to `$XDG_CONFIG_HOME/prherd.json` (default
 `~/.config/prherd.json`) whenever one changes and when you close it,
 and restores them at the next launch. `repo` arguments are added to the saved
 list. `--force`, `--admin`, and `--interval` override the saved values. If the
 file can't be parsed, the tool exits instead of overwriting it. If only the old
 `codex-automerge.json` exists there, it's renamed to `prherd.json`. `--headless` neither reads nor writes these files.
+
+### Settings
+
+The button at the foot of the sidebar opens Settings. So does ⌘, (Ctrl+, on Windows and Linux). Each change
+applies and is saved as you make it, so there's no OK button. The merge mode, interval and Auto-merge here are
+the toolbar's own controls: change either and the other follows.
+
+- **General**: Light, Dark or Match system. The polling interval. **Open at login**, which only changes the next
+  login (a LaunchAgent on macOS, an autostart entry on Linux, a Run key on Windows). And where the settings file
+  is, with a button that shows it in Finder (in Explorer on Windows; on Linux it opens the folder).
+- **Repositories**: the watched repos, with add and remove. Each has a badge for whether the account `gh` is
+  signed in as can merge there (admin, maintain or write permission): Can merge, Can't merge, or Unknown if `gh`
+  couldn't say.
+- **Merging**: the Auto-merge switch, the three merge modes with what each does, and the rules that aren't
+  settings: squash pinned to the head commit, the `do-not-merge` label, one conflict comment per head commit.
+- **Codex**: the account that counts as Codex, what counts as a go-ahead, and the `@codex review` comment that
+  Request Codex review posts. Nothing here can be changed.
+- **Notifications**: a switch for each thing to be notified of: a PR merges, a PR starts conflicting, a verdict
+  lookup fails twice in a row, Codex clears a PR. The pane says so if this computer has nothing to show
+  notifications with (macOS uses `osascript`, Linux `notify-send`).
+
+### First run
+
+With no repos to watch, the window is the toolbar over a first-run screen. The sidebar, the list and the log
+come back as soon as a repo is added, and removing the last repo brings the screen back.
+
+- **Repository**: type `owner/repo` or a path and press Return. If it can't be added, the reason is shown under
+  the field.
+- **Setup**: whether `gh` is installed and new enough, and whether it's signed in, with what to do if not.
+  **Re-check** asks again.
+- **What counts as a go-ahead**, in three points.
+
+While it's up, the window can't be made too short to show all of it.
 
 ## Options
 
