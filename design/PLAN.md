@@ -4,6 +4,25 @@ How to get the mockups in this folder into `prherd.py`, in phases that each
 ship as their own PR. Every phase leaves the app working, keeps the merge
 logic untouched, and keeps `--headless` exactly as it is.
 
+## Status
+
+All five phases are built, in one PR rather than one each. Where the result differs from the phases below:
+
+- **Phase 2:** the window is a `class App`. The Codex cell keeps the plain label and the verdict's icon is the
+  row's image. The selection bar sits over the heading, so rows don't move under the pointer. The log is newest
+  first, and its kinds include `info` for lines that fit none of the others.
+- **Phase 3:** the detail panel shows only while exactly one PR is selected. The Merge now sheet has no success
+  state (results go to the activity log), and its Merge button waits 0.6 s after the sheet shows, so the click that
+  opened it can't confirm it.
+- **Phase 4:** the first run keeps the toolbar, so mode and Auto-merge can be set before adding a repo. Merge
+  rights are checked in Settings, not on the first-run screen.
+- **Phase 5:**
+  - Notifications, Open at login and the Merged today count are built. Merged today counts the merges prherd has
+    seen since midnight, not a GitHub query.
+  - The menu bar extra needs no dependency. Tk already runs an `NSApplication` in the process, so `class MenuBar`
+    makes the status item through the Objective-C runtime with `ctypes`. Any failure leaves the window without it.
+  - Pills stay out: the Treeview's icon, label and tinted rows were enough.
+
 ## Ground rules
 
 - **Stay on tkinter/ttk.** No new dependencies, still one file, and the

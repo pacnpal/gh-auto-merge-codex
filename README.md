@@ -82,6 +82,8 @@ work too).
 **Pull requests**
 
 The list groups each repo's open PRs under it. A newly added repo is shown right away. Merging starts on the next poll.
+Over it, the heading names the view and has a count for Ready, Reviewing, Attention, and Merged today (the merges
+prherd has seen since midnight). A narrow window leaves some of the counts out.
 
 - **Pull request**: its number, title and branch. The icon beside it is Codex's verdict.
 - **Codex**: Thumbs up (a 👍 reaction), No major issues (a clean review comment), Reviewing (Codex reacted 👀), Merge
@@ -89,7 +91,7 @@ The list groups each repo's open PRs under it. A newly added repo is shown right
 - **Author**, and **State**: Open, Draft, or Queued if auto-merge is on.
 - **Head**: the start of the commit the PR is at. **Age**: how long since the PR last changed. A narrow window
   leaves out Head, then Age.
-- **Right-click a PR** (or Control-click): Open in browser, Copy link, Merge now, Don't merge, Allow merge, Update branch, and Request Codex review. These act on every selected PR. Double-click a PR to open it in the browser.
+- **Right-click a PR** (or Control-click on macOS): Open in browser, Copy link, Merge now, Don't merge, Allow merge, Update branch, and Request Codex review. These act on every selected PR. Double-click a PR to open it in the browser.
 - **Select two or more PRs** and a bar over the heading offers Request Codex review, Don't merge, Allow merge, Update
   branch, and Merge now for all of them.
 - **Select one PR** and a panel about it opens on the right (see below).
@@ -137,16 +139,29 @@ The log, newest line first. Each line has its time and what kind it is: merge, c
 error, poll, or info. Click **Activity** to collapse or expand it. Its header shows Live, or Watching while Auto-merge
 is off, and how long until the next poll.
 
+**Notifications**
+
+prherd posts a notification when a PR merges, when one starts conflicting, when its verdict lookup fails twice in
+a row, and when Codex clears one. Each can be switched off in [Settings](#settings). Nothing is posted for what was
+already so at launch, or for a repo just added.
+
+**Menu bar** (macOS)
+
+An item in the menu bar shows how many PRs are ready to merge and how many need attention. Its menu repeats those
+counts and the merges today, and has Poll now, Auto-merge, Open prherd, Settings, and Quit. Choosing a count opens
+the window on that view. Turn it off with **Show in menu bar** in Settings. Closing the window still quits prherd.
+
 The window follows the system's light or dark appearance, and switches within a poll interval when the
 system does. To pin it, choose Light or Dark in [Settings](#settings) (in the settings file below, that's
 `"appearance"` set to `"light"` or `"dark"`; `"system"` is the default).
 
 The window saves its repo list, merge mode, interval, Auto-merge setting,
-appearance, size, chosen view, sidebar width, whether the activity log is
-collapsed, and the notification switches to `$XDG_CONFIG_HOME/prherd.json` (default
-`~/.config/prherd.json`) whenever one changes and when you close it,
+appearance, size, chosen view, sidebar and detail panel widths, whether the activity log is
+collapsed, the notification switches, and whether to show the menu bar item to `$XDG_CONFIG_HOME/prherd.json`
+(default `~/.config/prherd.json`) whenever one changes and when you close it,
 and restores them at the next launch. `repo` arguments are added to the saved
-list. `--force`, `--admin`, and `--interval` override the saved values. If the
+list. `--force`, `--admin`, and `--interval` apply to that run only: the saved mode and interval stay as they
+were unless you change them in the window. A value in the file that isn't valid falls back to its default. If the
 file can't be parsed, the tool exits instead of overwriting it. If only the old
 `codex-automerge.json` exists there, it's renamed to `prherd.json`. `--headless` neither reads nor writes these files.
 
@@ -157,7 +172,8 @@ applies and is saved as you make it, so there's no OK button. The merge mode, in
 the toolbar's own controls: change either and the other follows.
 
 - **General**: Light, Dark or Match system. The polling interval. **Open at login**, which only changes the next
-  login (a LaunchAgent on macOS, an autostart entry on Linux, a Run key on Windows). And where the settings file
+  login (a LaunchAgent on macOS, an autostart entry on Linux, a Run key on Windows). **Show in menu bar** (macOS).
+  And where the settings file
   is, with a button that shows it in Finder (in Explorer on Windows; on Linux it opens the folder).
 - **Repositories**: the watched repos, with add and remove. Each has a badge for whether the account `gh` is
   signed in as can merge there (admin, maintain or write permission): Can merge, Can't merge, or Unknown if `gh`
