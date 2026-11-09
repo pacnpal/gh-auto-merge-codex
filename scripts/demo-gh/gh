@@ -46,10 +46,28 @@ def find(repo, number):
     return next(p for p in REPOS[repo] if p[0] == number)
 
 
-def pr_list(repo):
+# number -> (branch, minutes since it was last updated), for the PR column and the Age column.
+BRANCHES = {
+    214: ("feat/remember-address", 2), 213: ("perf/lazy-images", 6), 211: ("dependabot/checkout-5", 11),
+    208: ("fix/cart-badge", 24), 97: ("feat/search-rate-limit", 38), 95: ("chore/redis-8", 52),
+    94: ("docs/openapi-3-2", 190), 41: ("docs/webhook-retries", 9), 39: ("fix/quickstart-links", 1500),
+}
+
+
+# PRs to leave out of the open lists, as "211,41": they've merged. For seeing what prherd does when one does.
+GONE = {int(number) for number in os.environ.get("DEMO_GH_GONE", "").split(",") if number.strip()}
+
+
+def pr_list(repo, gone=GONE):
+    import time  # here, not at the top: the ages are the only thing in this file that needs a clock
     out = []
     for number, title, author, verdict, extra in REPOS[repo]:
+        if number in gone:
+            continue
+        branch, minutes = BRANCHES[number]
         out.append({
+            "headRefName": branch,
+            "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - minutes * 60)),
             "number": number, "title": title, "headRefOid": sha(repo, number), "baseRefName": "main",
             "mergeable": "CONFLICTING" if verdict == "conflict" else "MERGEABLE",
             "labels": [{"name": "do-not-merge"}] if verdict == "hold" else [],
@@ -57,6 +75,15 @@ def pr_list(repo):
             "isDraft": bool(extra.get("draft")), "author": {"login": author},
         })
     return out
+
+
+def pr_view(repo, number, fields):
+    """The asked-for fields of one PR. A number that isn't in the demo's open list left it by merging."""
+    pr = next((p for p in pr_list(repo, ()) if p["number"] == number), None)
+    known = pr or {"number": number, "title": "A pull request merged earlier", "labels": []}
+    pr = pr if number not in GONE else None
+    data = dict(known, state="OPEN" if pr else "MERGED", mergedAt=None if pr else AFTER)
+    return {field: data.get(field) for field in fields}
 
 
 def api(path):
@@ -86,11 +113,18 @@ def main(args):
         log.write(" ".join(args) + "\n")
     if args[:1] == ["--version"]:
         return print("gh version 2.62.0 (demo)")
+    if args[:2] == ["repo", "view"] and "viewerPermission" in args:  # the docs repo is someone else's to merge
+        return print(json.dumps({"viewerPermission": "READ" if args[2].endswith("/docs") else "ADMIN"}))
     if args[:2] == ["repo", "view"]:
         return print(f"https://github.com/{args[2]}")
     if args[:2] == ["pr", "list"]:
         repo = args[args.index("-R") + 1].split("/", 1)[1]
         return print(json.dumps(pr_list(repo)))
+    if args[:2] == ["pr", "view"]:
+        repo = args[args.index("-R") + 1].split("/", 1)[1]
+        return print(json.dumps(pr_view(repo, int(args[2]), args[args.index("--json") + 1].split(","))))
+    if args[:2] == ["auth", "status"]:  # as gh words it, less the tick, which not every console can print
+        return print("github.com\n  Logged in to github.com account demo (keyring)\n  - Active account: true")
     if args[:1] == ["api"]:
         path = next((a for a in args[1:] if a.startswith("repos/") or a == "user"), "")
         if path == "user":

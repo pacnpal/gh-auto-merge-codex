@@ -206,18 +206,19 @@ class Test(unittest.TestCase):
 
     def test_row_values(self):
         pr = {"isDraft": False, "autoMergeRequest": None, "author": {"login": "octocat"}}
-        self.assertEqual(ca.row_values(pr, None), ("Awaiting Codex", "octocat", ""))
+        self.assertEqual(ca.row_values(pr, None), ("Awaiting Codex", "octocat", "Open", "", ""))
         labels = {v: ca.row_values(pr, v)[0] for v in ("👍", "no major issues", "👀", "merge conflict", "?", "don't merge")}
         self.assertEqual(labels, {"👍": "Thumbs up", "no major issues": "No major issues", "👀": "Reviewing",
                                   "merge conflict": "Merge conflict", "?": "Lookup failed", "don't merge": "Don't merge"})
-        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={}), "👍")[2], "")  # gh's empty value: not queued
-        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "queued")
-        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "don't merge")[2], "")
-        self.assertEqual(ca.row_values(dict(pr, isDraft=True, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "draft")
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={}), "👍")[2], "Open")  # gh's empty value: not queued
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "Queued")
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "don't merge")[2], "Open")
+        self.assertEqual(ca.row_values(dict(pr, isDraft=True, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "Draft")
         self.assertEqual(ca.row_values(dict(pr, author=None), "👍")[1], "")  # a deleted account
 
-    def window(self, fake, check, interval=3600):
-        """Run the window against fake gh; check(root, tree, buttons, wait_for) drives it, then closes it."""
+    def window(self, fake, check, interval=3600, mode=None, config=None):
+        """Run the window against fake gh; check(root, tree, buttons, wait_for) drives it, then closes it. With
+        config, a settings file to start from; mode and interval are the CLI's flags."""
         try:
             import tkinter as tk
             from tkinter import ttk
@@ -241,14 +242,20 @@ class Test(unittest.TestCase):
             found = list(widgets(root))
             tree = next(w for w in found if isinstance(w, ttk.Treeview))
             buttons = {w.cget("text"): w for w in found if isinstance(w, ttk.Button)}
-            check(root, tree, buttons, wait_for)
-            for pending in root.tk.call("after", "info"):  # else drain fires in the next test's window, and fails
-                root.after_cancel(pending)
-            root.destroy()
+            try:
+                check(root, tree, buttons, wait_for)
+            finally:  # even when check fails: a window left open, or a sheet's grab, breaks every test after it
+                for pending in root.tk.call("after", "info"):  # else drain fires in the next test's window
+                    root.after_cancel(pending)
+                root.destroy()
 
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"), \
-                mock.patch.object(ca, "gh", fake), mock.patch.object(tk.Misc, "mainloop", drive):
-            ca.gui(["octo/direct-repo"], None, interval)
+        # Stand-ins for the two things a window would otherwise do to this machine: post notifications, and put
+        # an item in the menu bar.
+        self.notified, self.menubar = mock.Mock(return_value=True), mock.Mock()
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", config or f"{d}/s.json"), \
+                mock.patch.object(ca, "gh", fake), mock.patch.object(tk.Misc, "mainloop", drive), \
+                mock.patch.object(ca, "notify", self.notified), mock.patch.object(ca, "MenuBar", self.menubar):
+            ca.gui(["octo/direct-repo"], mode, interval)
 
     def menu_for(self, root, tree):
         """Right-click the PR row; return the menu that opened and its entries' states by label."""
@@ -297,9 +304,8 @@ class Test(unittest.TestCase):
         self.window(FakeGh(mergeable="CONFLICTING"), conflicting)
 
     def test_merge_now_skips_held_and_conflicting_prs(self):
-        held = {"number": 8, "labels": [{"name": "do-not-merge"}]}
-        fake = FakeGh(reactions=THUMBS, more=[held, {"number": 9, "mergeable": "CONFLICTING"}])
-        asked = []
+        held = {"number": 8, "title": "held", "labels": [{"name": "do-not-merge"}]}
+        fake = FakeGh(reactions=THUMBS, more=[held, {"number": 9, "title": "conflicting", "mergeable": "CONFLICTING"}])
 
         def check(root, tree, buttons, wait_for):
             wait_for("Thumbs up")
@@ -307,15 +313,276 @@ class Test(unittest.TestCase):
             tree.selection_set([f"{REPO}#{n}" for n in (7, 8, 9)])
             menu, states = self.menu_for(root, tree)
             self.assertEqual(states["Merge now…"], "normal")
-            with mock.patch("tkinter.messagebox.askyesno", side_effect=lambda *a, **k: asked.append(a[1])):
-                menu.invoke("Merge now…")
+            menu.invoke("Merge now…")
+            sheet = root.app.sheet
+            said = self.texts(sheet.top)
+            self.assertIn("Merge this pull request now?", said)
+            # #7 with the commit it merges at; then #8 and #9, skipped, each with why.
+            self.assertEqual(said[said.index("t"):][:9],
+                             ["t", "octo/direct-repo #7", HEAD[:7], "held", "Skipped — marked don't merge", "#8",
+                              "conflicting", "Skipped — merge conflict", "#9"])
+            self.assertEqual(sheet.merge_button.cget("text"), "Merge now")
+            sheet.cancel_button.invoke()
+            self.assertIsNone(root.app.sheet)
+            root.update()
 
         self.window(fake, check)
-        [question] = asked
-        self.assertIn("#7 t (Thumbs up)", question)
-        self.assertNotIn("#8", question)
-        self.assertNotIn("#9", question)
-        self.assertEqual(fake.merges(), [])  # declined
+        self.assertEqual(fake.merges(), [])  # cancelled
+
+    def test_merged_today_counts_per_repo_and_starts_over_at_midnight(self):
+        other = "github.com/octo/other"
+        tally = ca.merged_today(("", {}), "2026-11-09")  # just asked what day it is
+        self.assertEqual(tally, ("2026-11-09", {}))
+        for repo in (REPO, other, REPO):
+            tally = ca.merged_today(tally, "2026-11-09", repo)
+        self.assertEqual(tally, ("2026-11-09", {REPO: 2, other: 1}))
+        self.assertEqual(ca.merged_today(tally, "2026-11-09"), tally)
+        self.assertEqual(ca.merged_today(tally, "2026-11-10"), ("2026-11-10", {}))  # past midnight
+        self.assertEqual(ca.merged_today(tally, "2026-11-10", other), ("2026-11-10", {other: 1}))
+        self.assertEqual(tally, ("2026-11-09", {REPO: 2, other: 1}))  # a new tally each time: the old one is as it was
+
+    def test_notify_and_menubar_settings_round_trip_and_fall_back(self):
+        on = dict.fromkeys(ca.NOTIFY_KINDS, True)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            extras = lambda: {key: ca.load_settings()[key] for key in ("notify", "menubar")}
+            self.assertEqual(extras(), {"notify": on, "menubar": True})
+            ca.save_settings({"notify": dict(on, merged=False), "menubar": False})
+            self.assertEqual(extras(), {"notify": dict(on, merged=False), "menubar": False})
+            for bad in ({"menubar": "no"}, {"menubar": 0}, {"menubar": None}, {"menubar": []}, {"notify": "none"},
+                        {"notify": ["merged"]}, {"notify": {"merged": "no", "other": False}}):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps(bad))
+                self.assertEqual(extras(), {"notify": on, "menubar": True}, bad)
+
+    def leaving_gh(self, **kwargs):
+        """A FakeGh whose PRs numbered in its .merged have left the open list, and are merged when asked about."""
+        class Gh(FakeGh):
+            merged = ()
+
+            def __call__(self, *args, cwd=None):
+                r = super().__call__(*args, cwd=cwd)
+                if not r.returncode and args[:2] == ("pr", "list"):
+                    r.stdout = json.dumps([pr for pr in json.loads(r.stdout) if pr["number"] not in self.merged])
+                elif not r.returncode and args[:2] == ("pr", "view") and "state" in args[-1]:
+                    number = int(args[2])
+                    r.stdout = json.dumps({"state": "MERGED" if number in self.merged else "CLOSED",
+                                           "title": f"title {number}", "number": number})
+                return r
+
+        return Gh(**kwargs)
+
+    def logged(self, root, text):
+        """Pump the window until its activity log has text."""
+        self.settle(root, lambda: text in root.app.logbox.get("1.0", "end"), f"the log never said {text!r}")
+
+    def test_window_notifies_of_changes_in_the_kinds_switched_on(self):
+        conflicting = {"number": 8, "mergeable": "CONFLICTING"}
+        fake = self.leaving_gh(reactions=THUMBS, more=[conflicting])
+        asked = lambda: [args for args, _ in fake.calls if args[:2] == ("pr", "view") and "state" in args[-1]]
+
+        def check(root, tree, buttons, wait_for):
+            app, sent = root.app, self.notified
+            wait_for("Thumbs up")
+            app.refresh(REPO)  # here, not on a worker, so it's done before the next line
+            sent.assert_not_called()  # launch notifies nothing, whatever the PRs are up to; nor does no change
+            self.assertEqual({n: v for n, (_, v) in app.seen[REPO].items()}, {7: "👍", 8: "merge conflict"})
+
+            fake.reactions, fake.more = (), [{"number": 8}]
+            app.refresh(REPO)
+            sent.assert_not_called()  # no longer cleared, no longer conflicting: neither is news
+            app.notify["conflict"] = False
+            fake.reactions, fake.more = THUMBS, [conflicting]
+            app.refresh(REPO)
+            self.assertEqual(sent.call_args_list, [mock.call("Codex cleared #7", "octo/direct-repo · t")])
+            self.logged(root, "octo/direct-repo notified: Codex cleared #7 · t")
+            self.assertNotIn("Merge conflict on #8", app.logbox.get("1.0", "end"))  # switched off: not sent, not logged
+
+            # A listing that fails isn't every PR leaving. Nor is it the list to compare the next one with.
+            fake.fail = ("pr list",)
+            app.refresh(REPO)
+            self.assertEqual((sent.call_count, asked(), sorted(app.seen[REPO])), (1, [], [7, 8]))
+            fake.fail, fake.merged = (), (8,)
+            sent.return_value = False  # this one can't be posted
+            app.refresh(REPO)
+            self.assertEqual(sent.call_args_list[1:], [mock.call("Merged #8", "octo/direct-repo · title 8")])
+            self.assertEqual([args[2] for args in asked()], ["8"])
+            self.logged(root, "octo/direct-repo can't notify: Merged #8 · title 8")
+
+            # A poll that began before the one last compared is too old to compare: #8 isn't back, to merge again.
+            fake.merged = ()
+            app.notice(REPO, 0, ca.poll(REPO, lambda msg: None, lambda: None))
+            self.assertEqual(sorted(app.seen[REPO]), [7])
+            fake.merged = (8,)
+            app.refresh(REPO)
+            self.assertEqual(sent.call_count, 2)
+
+        self.window(fake, check)
+
+    def test_window_counts_merges_today_whether_or_not_they_are_announced(self):
+        fake = self.leaving_gh(reactions=THUMBS, more=[{"number": 8}, {"number": 9, "mergeable": "CONFLICTING"}])
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            chips = lambda: {key: str(value.cget("text")) for key, (_, value) in app.chips.items()}
+            wait_for("Thumbs up")
+            app.refresh(REPO)
+            self.settle(root, lambda: chips() == {"ready": "2", "reviewing": "0", "attention": "1", "merged": "0"})
+            app.notify["merged"] = False
+            fake.merged = (8,)
+            with mock.patch.object(ca.App, "today", return_value="2026-11-09"):
+                app.refresh(REPO)
+                self.settle(root, lambda: chips() == {"ready": "1", "reviewing": "0", "attention": "1", "merged": "1"})
+                self.notified.assert_not_called()
+                fake.merged = (8, 9)
+                app.refresh(REPO)
+                self.settle(root, lambda: chips()["merged"] == "2")
+                self.assertEqual(app.merged, ("2026-11-09", {REPO: 2}))
+                app.pick_repo(REPO)  # the chips count what the sidebar is showing: this repo, as it happens
+                self.assertEqual(chips(), {"ready": "1", "reviewing": "0", "attention": "0", "merged": "2"})
+                app.pick_repo(REPO)
+            with mock.patch.object(ca.App, "today", return_value="2026-11-10"):  # midnight has passed
+                app.render()
+                self.assertEqual((chips()["merged"], app.merged), ("0", ("2026-11-10", {})))
+                fake.merged = (7, 8, 9)
+                app.refresh(REPO)
+                self.settle(root, lambda: chips()["merged"] == "1")
+
+        self.window(fake, check)
+
+    def test_stat_chips_make_way_for_the_heading(self):
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            root.update()
+            self.assertEqual(app.fitted, ["ready", "reviewing", "attention", "merged"])
+            self.assertTrue(all(chip.winfo_ismapped() for chip, _ in app.chips.values()))
+            root.geometry("780x480")
+            self.settle(root, lambda: app.heading.winfo_width() < 600)
+            self.settle(root, lambda: app.fitted != ["ready", "reviewing", "attention", "merged"])
+            self.assertEqual(app.fitted[-1:], ["merged"])  # the last to go
+            self.assertFalse(app.chips["reviewing"][0].winfo_ismapped())  # the first
+            app.query.set("a search long enough that the line under the heading needs the whole of its width")
+            root.update()
+            self.assertEqual(app.fitted, [])
+            self.assertFalse(app.stats.winfo_ismapped())
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_menu_bar_words(self):
+        self.assertEqual(ca.MenuBar.words(0, 0, 0), ("", "prherd: 0 ready to merge, 0 need attention, 0 merged today",
+                                                     ["0 ready to merge", "0 need attention", "0 merged today"]))
+        self.assertEqual(ca.MenuBar.words(3, 1, 12)[::2],
+                         ("3  ⚠︎ 1", ["3 ready to merge", "1 needs attention", "12 merged today"]))
+        self.assertEqual([ca.MenuBar.words(*counts)[0] for counts in ((2, 0, 5), (0, 2, 0))], ["2", "⚠︎ 2"])
+
+    def test_menu_bar_item_is_only_on_macos_and_only_an_extra(self):
+        def check(root, tree, buttons, wait_for):
+            app, made = root.app, self.menubar
+            said = lambda: app.logbox.get("1.0", "end")
+            saved = lambda: json.loads(pathlib.Path(ca.CONFIG).read_text())["menubar"]
+            wait_for("Thumbs up")
+            self.assertEqual(made.call_count, ca.sys.platform == "darwin")  # at launch: the stand-in, if anything
+            made.reset_mock()
+            for platform in ("linux", "win32"):
+                with mock.patch.object(ca.sys, "platform", platform):
+                    app.set_menubar(True)
+            made.assert_not_called()
+            self.assertIsNone(app.status)
+
+            with mock.patch.object(ca.sys, "platform", "darwin"):
+                made.side_effect = OSError("no libobjc")  # it can't be made: the window goes without
+                app.set_menubar(True)
+                self.assertIsNone(app.status)
+                self.logged(root, "no menu bar item: OSError('no libobjc')")
+                app.refresh(REPO)
+                app.render()
+                self.assertEqual(tree.set(ROW, "codex"), "Thumbs up")
+
+                made.side_effect = None
+                app.set_menubar(True)
+                item = made.return_value
+                self.assertIs(app.status, item)
+                self.assertIs(made.call_args.kwargs["settings"], True)  # its menu has Settings…
+                item.show.assert_called_with(1, 0, 0, True)  # one ready, none needing attention, none merged; merging
+                item.close.reset_mock()
+                app.set_menubar(True)
+                item.close.assert_called_once_with()  # the one it replaces
+                self.assertTrue(saved())
+
+                item.show.side_effect = RuntimeError("Cocoa has no setTitle:")  # it breaks later: the same
+                item.close.reset_mock()
+                app.render()
+                self.assertIsNone(app.status)
+                item.close.assert_called_once_with()  # not left in the menu bar with counts that have gone stale
+                self.logged(root, "menu bar item failed, so it's off: RuntimeError('Cocoa has no setTitle:')")
+                app.render()
+                self.assertEqual(said().count("menu bar item failed"), 1)
+                self.assertEqual(tree.set(ROW, "codex"), "Thumbs up")
+
+                item.show.side_effect = None
+                app.set_menubar(True)
+                item.close.reset_mock()
+                app.set_menubar(False)  # switched off: taken away, and saved
+                item.close.assert_called_once_with()
+                self.assertEqual((app.status, app.menubar, saved()), (None, False, False))
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_menu_bar_without_objective_c_makes_nothing(self):
+        import ctypes
+        with mock.patch.object(ca.MenuBar, "c", None), \
+                mock.patch.object(ctypes.cdll, "LoadLibrary", side_effect=OSError("no libobjc")) as load:
+            with self.assertRaises(OSError):
+                ca.MenuBar(mock.Mock(side_effect=AssertionError("nothing was chosen")))
+        load.assert_called_once()
+        self.assertEqual(ca.MenuBar.live, {})
+
+    def test_menu_choices_go_through_the_event_queue(self):
+        # Cocoa's side: a chosen item names its target and its tag. The MenuBar that target belongs to is told.
+        bar = mock.Mock()
+        with mock.patch.dict(ca.MenuBar.live, {1234: bar}):
+            for tag in (2, 6, 7, -1):  # the last two aren't actions
+                ca.MenuBar.chose(1234, tag)
+            ca.MenuBar.chose(99, 2)  # an item whose MenuBar is gone
+        self.assertEqual(bar.post.call_args_list, [mock.call("poll"), mock.call("quit")])
+        self.assertEqual(ca.MenuBar.ACTIONS[:2], ("ready", "attention"))  # the counts that open a view: both are views
+        self.assertLessEqual(set(ca.MenuBar.ACTIONS[:2]), set(ca.VIEWS))
+        fake = FakeGh(reactions=THUMBS)
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            with mock.patch.object(ca.sys, "platform", "darwin"):
+                app.set_menubar(True)
+            post, item = self.menubar.call_args.args[0], self.menubar.return_value
+            polls = lambda: sum(args[:2] == ("pr", "list") for args, _ in fake.calls)
+            # The window's side: post() is called inside Cocoa, so it only queues. drain() does the rest.
+            before = polls()
+            for action in ("merging", "poll", "no such action"):
+                post(action)
+            self.assertEqual((app.live["merging"], app.merging.get(), polls()), (True, True, before))
+            self.assertEqual(app.events.qsize(), 3)
+            self.settle(root, lambda: polls() > before and not app.busy)
+            self.assertEqual((app.live["merging"], app.merging.get()), (False, False))  # off first, so nothing merged
+            self.assertEqual(fake.merges(), [])
+            item.show.assert_called_with(1, 0, 0, False)
+            post("merging")
+            self.settle(root, lambda: app.live["merging"])
+            with mock.patch.object(root, "focus_force") as forced:
+                post("open")
+                self.settle(root, lambda: forced.called)
+                app.pick_repo(REPO)
+                app.query.set("nothing like it")
+                post("attention")  # a count in the menu: the window comes forward listing what it counted
+                self.settle(root, lambda: forced.call_count == 2)
+            self.assertEqual((app.view, app.only, app.query.get()), ("attention", None, ""))
+            app.settings = mock.Mock()
+            post("settings")
+            self.settle(root, lambda: app.settings.called)
+            with mock.patch.object(app, "close") as closed:
+                post("quit")
+                self.settle(root, lambda: closed.called)
+
+        self.window(fake, check)
 
     def test_window_follows_system_appearance(self):
         # Re-checked on each tick; the window is re-themed only when it changes.
@@ -440,6 +707,433 @@ class Test(unittest.TestCase):
         self.assertEqual(rows[0][1], "👍")
         self.assertEqual((len(fake.merges()), fake.comments_posted()), (1, []))
 
+    def answering(self, answers):
+        """A gh for calls FakeGh has no answer to: {words in the call: (exit code, output)}, first match wins."""
+        def fake(*args, cwd=None):
+            fake.calls.append(args)
+            code, out = next((a for words, a in answers.items() if words in " ".join(args)), (0, ""))
+            return subprocess.CompletedProcess(args, code, out, "")
+
+        fake.calls = []
+        return fake
+
+    def test_verdict_detail_times(self):
+        pr, mid = {"number": 7, "headRefOid": HEAD}, "2026-10-26T11:20:00Z"  # mid: after the push, before AFTER
+
+        def detail(**gh):
+            with mock.patch.object(ca, "gh", FakeGh(**gh)):
+                d = ca.verdict_detail(REPO, pr)
+                self.assertEqual(ca.verdict(REPO, pr), d["verdict"])
+            return d
+
+        eyes = dict(THUMBS[0], content="eyes", created_at=mid)
+        self.assertEqual(detail(reactions=THUMBS), {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER,
+                                                    "reviewing_at": None})
+        self.assertEqual(detail(reactions=[eyes, *THUMBS]), {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER,
+                                                             "reviewing_at": mid})
+        # The receipt that counted gives the time, not an earlier one for another commit.
+        self.assertEqual(detail(reactions=[eyes], comments=[receipt("0123456789", at=mid), receipt()]),
+                         {"verdict": "no major issues", "pushed": PUSHED, "cleared_at": AFTER, "reviewing_at": mid})
+        self.assertEqual(detail(reactions=[eyes]), {"verdict": "👀", "pushed": PUSHED, "cleared_at": None,
+                                                    "reviewing_at": mid})
+        # Signals from before this head arrived give no times, as they give no verdict.
+        stale = [dict(THUMBS[0], created_at=BEFORE), dict(eyes, created_at=BEFORE)]
+        self.assertEqual(detail(reactions=stale, comments=[receipt(at=BEFORE)]),
+                         {"verdict": None, "pushed": PUSHED, "cleared_at": None, "reviewing_at": None})
+        self.assertEqual(detail(reactions=THUMBS, comments=[receipt()], suites=()),
+                         {"verdict": None, "pushed": None, "cleared_at": None, "reviewing_at": None})
+
+    def test_poll_stores_details_for_looked_up_prs(self):
+        held = {"number": 8, "labels": [{"name": "do-not-merge"}]}
+        gh = lambda: FakeGh(reactions=THUMBS, more=[held, {"number": 9, "mergeable": "CONFLICTING"}])
+        plain, plain_log = run(gh())
+        details, logs = {}, []
+        with mock.patch.object(ca, "gh", gh()):
+            rows = ca.poll(REPO, logs.append, lambda: "", details)
+        self.assertEqual((rows, "\n".join(logs)), (plain, plain_log))  # asking for details changes nothing else
+        self.assertEqual(details, {7: {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER, "reviewing_at": None}})
+        details = {}
+        with mock.patch.object(ca, "gh", FakeGh(fail=["api"])):
+            rows = ca.poll(REPO, lambda _: None, lambda: None, details)
+        self.assertEqual((rows[0][1], details), ("?", {}))
+        details = {}
+        with mock.patch.object(ca, "gh", FakeGh()):  # looked up, with nothing found: still stored
+            ca.poll(REPO, lambda _: None, lambda: None, details)
+        self.assertEqual(details, {7: {"verdict": None, "pushed": PUSHED, "cleared_at": None, "reviewing_at": None}})
+
+    def test_readiness_for_every_verdict(self):
+        pr = {"number": 7, "headRefOid": HEAD, "baseRefName": "main", "mergeable": "MERGEABLE", "isDraft": False,
+              "autoMergeRequest": None}
+        go = {"👍": ("ok", "Codex go-ahead on the current head", "Newer than bfd4fae"),
+              "no major issues": ("ok", "Codex go-ahead on the current head", "Receipt names bfd4fae"),
+              "👀": ("warn", "Codex is reviewing", "Its verdict lands on the next poll"),
+              "merge conflict": ("warn", "Not checked while conflicting", "Resolve the conflict first"),
+              "?": ("err", "Couldn't read Codex's verdict", "GitHub returned an error; retrying"),
+              "don't merge": ("warn", "Not checked while held", "Allow merge to check again"),
+              None: ("warn", "No go-ahead yet", "Request a Codex review to get one")}
+        self.assertEqual(set(go), set(ca.VERDICTS))
+        tones = {v["tone"] for v in ca.VERDICTS.values()}
+        for v, first in go.items():
+            items = ca.readiness(pr, v)
+            self.assertEqual((len(items), items[0]), (5, first), v)
+            self.assertLessEqual({tone for tone, _, _ in items}, tones)
+            conflict, label, draft, queue = items[1:]
+            clear = ("ok", "No conflicts with main", "Mergeable as of the last poll")
+            self.assertEqual(conflict, ("bad", "Conflicts with main", "Commented once on bfd4fae")
+                             if v == "merge conflict" else clear)
+            self.assertEqual(label, ("bad", "Labeled do-not-merge", "Allow merge to release it")
+                             if v == "don't merge" else ("ok", "Not labeled do-not-merge", ""))
+            self.assertEqual(draft, ("ok", "Ready for review", "Not a draft"))
+            self.assertEqual(queue[:2], ("warn", "Not queued yet") if v in ("👍", "no major issues")
+                             else ("none", "Not queued"))
+        self.assertEqual(ca.readiness(dict(pr, isDraft=True), None)[3],
+                         ("warn", "Draft pull request", "Mark ready for review on GitHub"))
+        queued = dict(pr, autoMergeRequest={"enabledAt": AFTER})
+        self.assertEqual(ca.readiness(queued, "👍")[4][:2], ("ok", "Auto-merge queued"))
+        self.assertEqual(ca.readiness(queued, "don't merge")[4][:2], ("none", "Not queued"))  # the poll cancels it
+        self.assertEqual(ca.readiness(dict(pr, autoMergeRequest={}), "👍")[4][:2], ("warn", "Not queued yet"))
+        # Held and conflicting, and GitHub still working out whether it conflicts.
+        self.assertEqual(ca.readiness(dict(pr, mergeable="CONFLICTING"), "don't merge")[1],
+                         ("bad", "Conflicts with main", "Not commented on while held"))
+        self.assertEqual(ca.readiness(dict(pr, mergeable="UNKNOWN"), "👍")[1][:2],
+                         ("warn", "Checking for conflicts with main"))
+        self.assertEqual(len(ca.readiness({"number": 7}, None)), 5)  # a PR with no other fields
+
+    def test_headline_for_every_verdict(self):
+        pr = {"number": 7, "headRefOid": HEAD, "isDraft": False, "autoMergeRequest": None}
+        queued, draft = dict(pr, autoMergeRequest={"enabledAt": AFTER}), dict(pr, isDraft=True)
+        titles = {"don't merge": ("hold", "Held — won't merge"),
+                  "merge conflict": ("bad", "Blocked by a merge conflict"),
+                  "?": ("err", "Couldn't read Codex's verdict"), "👀": ("warn", "Codex is reviewing"),
+                  None: ("none", "Waiting for Codex"), "👍": ("ok", "Cleared — merges on the next poll"),
+                  "no major issues": ("ok", "Cleared — merges on the next poll")}
+        self.assertEqual(set(titles), set(ca.VERDICTS))
+        for v, expected in titles.items():
+            tone, title, detail = ca.headline(pr, v)
+            self.assertEqual((tone, title), expected)
+            self.assertEqual(tone, ca.VERDICTS[v]["tone"])  # the card matches the row's pill
+            self.assertTrue(detail)
+        for v in ("👍", "no major issues"):
+            self.assertEqual(ca.headline(queued, v)[:2], ("ok", "Cleared — queued to merge"))
+            self.assertIn("queued at bfd4fae", ca.headline(queued, v)[2])
+            self.assertEqual(ca.headline(pr, v, merging=False)[:2], ("ok", "Cleared — watching only"))
+            # Queued on GitHub merges whatever the switch says; a draft merges nowhere.
+            self.assertEqual(ca.headline(queued, v, merging=False)[1], "Cleared — queued to merge")
+            self.assertEqual(ca.headline(dict(queued, isDraft=True), v)[:2], ("warn", "Draft — not merging yet"))
+        self.assertEqual(ca.headline(draft, None)[:2], ("none", "Draft — not merging yet"))
+        self.assertIn("No go-ahead newer than bfd4fae", ca.headline(pr, None)[2])
+        self.assertNotEqual(ca.headline(pr, "👀")[2], ca.headline(pr, "👀", merging=False)[2])
+        # A held or conflicting PR says so, queued or draft or not.
+        self.assertEqual(ca.headline(dict(queued, isDraft=True), "don't merge")[1], "Held — won't merge")
+        self.assertEqual(ca.headline(queued, "merge conflict")[1], "Blocked by a merge conflict")
+        self.assertEqual(ca.headline({"number": 7}, "👍")[1], "Cleared — merges on the next poll")
+
+    def test_timeline_is_in_time_order(self):
+        mid, late = "2026-10-26T11:20:00Z", "2026-10-26T11:30:00Z"
+        pr = {"number": 7, "headRefOid": HEAD, "autoMergeRequest": {"enabledAt": late}}
+        detail = {"verdict": "👍", "pushed": PUSHED, "cleared_at": AFTER, "reviewing_at": mid}
+        self.assertEqual(ca.timeline(pr, "👍", detail), [
+            (PUSHED, "none", "Head bfd4fae pushed"), (mid, "warn", "Codex started reviewing"),
+            (AFTER, "ok", "Codex gave a thumbs-up"), (late, "acc", "Auto-merge queued behind checks")])
+        self.assertEqual(ca.timeline(pr, "no major issues", dict(detail, verdict="no major issues"))[2],
+                         (AFTER, "ok", "Codex: no major issues on bfd4fae"))
+        # Auto-merge left queued from an earlier head comes first: order is by time, not by kind.
+        early = dict(pr, autoMergeRequest={"enabledAt": BEFORE})
+        reviewing = ca.timeline(early, "👀", dict(detail, verdict="👀", cleared_at=None))
+        self.assertEqual([text for _, _, text in reviewing],
+                         ["Auto-merge queued behind checks", "Head bfd4fae pushed", "Codex started reviewing"])
+        # What isn't known is left out: no detail for a held, conflicting or failed PR.
+        self.assertEqual(ca.timeline(pr, "don't merge", None), [(late, "acc", "Auto-merge queued behind checks")])
+        self.assertEqual(ca.timeline({"number": 7, "headRefOid": HEAD, "autoMergeRequest": None}, "?", None), [])
+        self.assertEqual(ca.timeline({"number": 7}, None, {"verdict": None, "pushed": None, "cleared_at": None,
+                                                           "reviewing_at": None}), [])
+
+    def test_gh_version(self):
+        real = "gh version 2.63.2 (2025-01-10)\nhttps://github.com/cli/cli/releases/tag/v2.63.2\n"
+        self.assertEqual(ca.gh_version(real), (2, 63, 2))
+        self.assertEqual(ca.gh_version("gh version 2.62.0 (demo)"), (2, 62, 0))
+        self.assertEqual(ca.gh_version("gh version 2.48"), (2, 48))
+        self.assertEqual(ca.gh_version("gh version 2.90.0-rc.1 (2026-01-01)"), (2, 90, 0))
+        for junk in ("", None, "git version 2.47.0", "gh: command not found"):
+            self.assertIsNone(ca.gh_version(junk))
+        self.assertGreaterEqual((2, 48, 0), ca.GH_MIN)
+        self.assertLess((2, 47, 9), ca.GH_MIN)
+
+    def test_setup_checks(self):
+        signed_in = "github.com\n  ✓ Logged in to github.com account octocat (keyring)\n  - Active account: true\n"
+
+        def checks(answers):
+            fake = self.answering(answers)
+            with mock.patch.object(ca, "gh", fake):
+                return ca.setup_checks(), fake.calls
+
+        result, calls = checks({"--version": (0, "gh version 2.63.2 (2025-01-10)\n"), "auth status": (0, signed_in)})
+        self.assertEqual(result, [(True, "GitHub CLI installed", "gh 2.63.2"), (True, "Signed in", "octocat")])
+        self.assertEqual(calls, [("--version",), ("auth", "status")])
+        result, _ = checks({"--version": (0, "gh version 2.48.0 (2024-04-17)\n"), "auth status": (0, "")})
+        self.assertEqual(result, [(True, "GitHub CLI installed", "gh 2.48.0"), (True, "Signed in", "")])
+        result, _ = checks({"--version": (0, "gh version 2.47.0 (2024-04-03)\n"),
+                            "auth status": (1, "You are not logged into any GitHub hosts.")})
+        self.assertEqual(result, [(False, "GitHub CLI installed", "gh 2.47.0 is too old; prherd needs 2.48 or newer"),
+                                  (False, "Signed in", "run `gh auth login` in a terminal")])
+        result, _ = checks({"--version": (0, "something else"), "auth status": (0, signed_in)})
+        self.assertEqual(result[0], (False, "GitHub CLI installed", "couldn't read gh's version"))
+        result, _ = checks({"--version": (1, "gh version 2.63.2")})  # e.g. timed out
+        self.assertFalse(result[0][0])
+        missing = [(False, "GitHub CLI installed", "gh not found; install it from cli.github.com"),
+                   (False, "Signed in", "needs gh")]
+        with mock.patch.object(ca, "gh", side_effect=FileNotFoundError(2, "No such file or directory", "gh")):
+            self.assertEqual(ca.setup_checks(), missing)
+        with mock.patch.object(ca, "GH", os.path.join(tempfile.gettempdir(), "no-such-dir", "gh")):  # the real helper
+            self.assertEqual(ca.setup_checks(), missing)
+
+    def test_pr_state(self):
+        merged = {"state": "MERGED", "mergedAt": AFTER, "title": "t", "number": 7}
+        fake = self.answering({"pr view": (0, json.dumps(merged))})
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.pr_state(REPO, 7), merged)
+        self.assertEqual(fake.calls, [("pr", "view", "7", "-R", REPO, "--json", "state,mergedAt,title,number")])
+        for broken in ((1, "no pull requests found"), (0, "not json"), (0, "[]")):
+            with mock.patch.object(ca, "gh", self.answering({"pr view": broken})):
+                self.assertIsNone(ca.pr_state(REPO, 7))
+        with mock.patch.object(ca, "gh", side_effect=FileNotFoundError("gh")):
+            self.assertIsNone(ca.pr_state(REPO, 7))
+
+    def notice_prs(self, verdicts):
+        """{number: verdict} -> poll()-shaped rows, and the same as a `before`."""
+        rows = [({"number": n, "title": f"title {n}"}, v) for n, v in verdicts.items()]
+        return rows, {pr["number"]: (pr, v) for pr, v in rows}
+
+    def test_notices_nothing_on_first_poll_or_first_sight(self):
+        rows, seen = self.notice_prs({7: "👍", 8: "merge conflict", 9: "?"})
+        no_state = mock.Mock(side_effect=AssertionError("nothing left the list"))
+        streaks = {}
+        self.assertEqual(ca.notices(REPO, None, rows, streaks, no_state), [])  # launch: no burst
+        self.assertEqual(streaks, {(REPO, 9): 1})  # but the failure counts towards two in a row
+        self.assertEqual(ca.notices(REPO, {}, rows, {}, no_state), [])  # PRs opened since the last poll
+        self.assertEqual(ca.notices(REPO, seen, rows, {}, no_state), [])  # nothing changed
+        self.assertEqual(ca.notices(REPO, seen, None, {}, no_state), [])  # the listing failed: not "all gone"
+
+    def test_notices_conflict_and_cleared(self):
+        no_state = mock.Mock(side_effect=AssertionError("nothing left the list"))
+        _, before = self.notice_prs({7: None, 8: "👀", 9: "👍", 10: "merge conflict", 11: "don't merge", 12: "?"})
+        rows, _ = self.notice_prs({7: "merge conflict", 8: "👍", 9: "no major issues", 10: "merge conflict",
+                                   11: "no major issues", 12: "merge conflict"})
+        self.assertEqual(ca.notices(REPO, before, rows, {}, no_state), [
+            ("conflict", "Merge conflict on #7", "octo/direct-repo · title 7"),
+            ("cleared", "Codex cleared #8", "octo/direct-repo · title 8"),  # 9 and 10 were already there
+            ("cleared", "Codex cleared #11", "octo/direct-repo · title 11"),
+            ("conflict", "Merge conflict on #12", "octo/direct-repo · title 12")])
+        # Leaving those states is quiet.
+        rows, _ = self.notice_prs({7: None, 8: "👀", 9: "don't merge", 10: None, 11: "👀", 12: None})
+        _, before = self.notice_prs({7: "merge conflict", 8: "👍", 9: "👍", 10: "merge conflict", 11: "👍",
+                                     12: "👍"})
+        self.assertEqual(ca.notices(REPO, before, rows, {}, no_state), [])
+        # Another host is named; github.com isn't.
+        rows, _ = self.notice_prs({7: "👍"})
+        _, before = self.notice_prs({7: None})
+        self.assertEqual(ca.notices("github.example/acme/local-repo", before, rows, {}, no_state),
+                         [("cleared", "Codex cleared #7", "github.example/acme/local-repo · title 7")])
+
+    def test_notices_failed_lookup_after_two_polls_in_a_row(self):
+        failed, seen = self.notice_prs({7: "?"})
+        fine, _ = self.notice_prs({7: None})
+        streaks = {}
+        kinds = lambda rows: [kind for kind, _, _ in ca.notices(REPO, seen, rows, streaks)]
+        self.assertEqual(kinds(failed), [])  # one failure is a blip
+        self.assertEqual(ca.notices(REPO, seen, failed, streaks),
+                         [("failed", "Lookup failed for #7", "octo/direct-repo · title 7")])
+        self.assertEqual(kinds(failed), [])  # the third in a row: already said
+        self.assertEqual(streaks, {(REPO, 7): 3})
+        self.assertEqual(kinds(fine), [])
+        self.assertEqual(streaks, {})  # recovered: the count starts over
+        # Never two in a row.
+        self.assertEqual([kinds(failed), kinds(fine), kinds(failed), kinds(fine)], [[], [], [], []])
+        self.assertEqual([kinds(failed), kinds(failed)], [[], ["failed"]])
+        # Counted per repo, and dropped with a PR that leaves the list.
+        other = "github.com/octo/other"
+        self.assertEqual(ca.notices(other, seen, failed, streaks), [])
+        self.assertEqual(streaks, {(REPO, 7): 2, (other, 7): 1})
+        self.assertEqual(ca.notices(other, seen, [], streaks, lambda repo, number: None), [])
+        self.assertEqual(streaks, {(REPO, 7): 2})
+
+    def test_notices_merged_but_not_closed(self):
+        _, before = self.notice_prs({7: "👍", 8: None, 9: "👀", 10: None})
+        rows, _ = self.notice_prs({10: None})
+        states = {7: {"state": "MERGED", "mergedAt": AFTER, "title": "renamed since", "number": 7},
+                  8: {"state": "CLOSED", "mergedAt": None, "title": "title 8", "number": 8},
+                  9: None}  # the lookup failed
+        asked = []
+        state = lambda repo, number: asked.append((repo, number)) or states[number]
+        self.assertEqual(ca.notices(REPO, before, rows, {}, state),
+                         [("merged", "Merged #7", "octo/direct-repo · renamed since")])
+        self.assertEqual(asked, [(REPO, 7), (REPO, 8), (REPO, 9)])  # only the PRs that left the list
+        # By default it asks gh, and falls back on the title it last saw.
+        fake = self.answering({"pr view": (0, json.dumps({"state": "MERGED", "mergedAt": AFTER, "number": 7}))})
+        with mock.patch.object(ca, "gh", fake):
+            self.assertEqual(ca.notices(REPO, {7: before[7]}, [], {}),
+                             [("merged", "Merged #7", "octo/direct-repo · title 7")])
+        self.assertEqual(fake.calls[0][:5], ("pr", "view", "7", "-R", REPO))
+
+    def test_checked_notify(self):
+        on = dict.fromkeys(ca.NOTIFY_KINDS, True)
+        self.assertEqual(ca.NOTIFY_KINDS, ("merged", "conflict", "failed", "cleared"))
+        for junk in (None, [], "no", 0, {}, {"other": False}):
+            self.assertEqual(ca.checked_notify(junk), on)
+        self.assertEqual(ca.checked_notify({"merged": False, "cleared": False, "extra": False}),
+                         dict(on, merged=False, cleared=False))
+        self.assertEqual(ca.checked_notify({"merged": 0, "conflict": "false", "failed": None}), on)  # only real bools
+
+    def test_notify_passes_text_as_arguments_on_macos(self):
+        title, body = 'Merged #7"; do shell script "id', "octo/direct-repo · $(id) `id` \\"
+        with mock.patch.object(ca.sys, "platform", "darwin"), \
+                mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as spawn:
+            self.assertIs(ca.notify(title, body), True)
+        argv = spawn.call_args.args[0]
+        # -- ends osascript's options, so a title starting with "-" is still text.
+        self.assertEqual(argv, ["/usr/bin/osascript", "-e", ca.NOTIFY_SCRIPT, "--", title, body])
+        self.assertEqual(ca.NOTIFY_SCRIPT,
+                         "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run")
+        how = spawn.call_args.kwargs
+        self.assertNotIn("shell", how)  # an argv, never a command line
+        self.assertEqual((how["close_fds"], how["creationflags"], bool(how["timeout"])), (False, ca.NO_WINDOW, True))
+
+    def test_notify_never_raises_and_says_when_it_cannot(self):
+        with mock.patch.object(ca.sys, "platform", "darwin"):
+            with mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 1, "", "nope")):
+                self.assertIs(ca.notify("t", "b"), False)
+            for error in (FileNotFoundError("osascript"), subprocess.TimeoutExpired("osascript", 10),
+                          ValueError("embedded null byte")):
+                with mock.patch("subprocess.run", side_effect=error):
+                    self.assertIs(ca.notify("t", "b\0"), False)
+        for platform in ("linux", "win32"):  # no notify-send; Windows has nothing to call
+            with mock.patch.object(ca.sys, "platform", platform), mock.patch("shutil.which", return_value=None), \
+                    mock.patch("subprocess.run") as spawn:
+                self.assertIs(ca.notify("t", "b"), False)
+            spawn.assert_not_called()
+        with mock.patch.object(ca.sys, "platform", "linux"), \
+                mock.patch("shutil.which", return_value="/usr/bin/notify-send"), \
+                mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, "", "")) as spawn:
+            self.assertIs(ca.notify("--help", "<b>body</b>"), True)
+        self.assertEqual(spawn.call_args.args[0],
+                         ["/usr/bin/notify-send", "--app-name=prherd", "--", "--help", "<b>body</b>"])
+
+    def login_home(self, platform, **env):
+        """A throwaway home on the given platform, so no test touches the real login items."""
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        # expanduser reads HOME, or USERPROFILE when the tests themselves run on Windows.
+        for patch in (mock.patch.object(ca.sys, "platform", platform),
+                      mock.patch.dict(os.environ, {"HOME": home.name, "USERPROFILE": home.name, **env})):
+            patch.start()
+            self.addCleanup(patch.stop)
+        if "XDG_CONFIG_HOME" not in env:
+            os.environ.pop("XDG_CONFIG_HOME", None)
+        return home.name
+
+    def test_launch_command(self):
+        with mock.patch.object(ca.sys, "frozen", True, create=True), \
+                mock.patch.object(ca.sys, "executable", "/Apps/prherd"):
+            self.assertEqual(ca.launch_command(), ["/Apps/prherd"])
+        source = pathlib.Path(ca.__file__).resolve()
+        command = ca.launch_command()
+        self.assertEqual((command[0], pathlib.Path(command[1]).resolve()), (ca.sys.executable, source))
+        self.assertTrue(os.path.isabs(command[1]))
+
+    def test_login_item_on_macos(self):
+        import plistlib
+        d = self.login_home("darwin")
+        path = os.path.join(d, "Library", "LaunchAgents", "com.pacnpal.prherd.plist")
+        self.assertEqual(ca.login_item_path(), path)
+        self.assertFalse(ca.login_item_enabled())
+        self.assertEqual(ca.login_item(False), "no longer opens at login")  # already off, and no folder yet
+        with mock.patch.object(ca, "launch_command", return_value=["/Apps/pr herd/prherd", "it's \"quoted\""]):
+            self.assertEqual(ca.login_item(True), "opens at login")
+            self.assertEqual(ca.login_item(True), "opens at login")  # again: rewritten, not an error
+        self.assertTrue(ca.login_item_enabled())
+        with open(path, "rb") as f:
+            self.assertEqual(plistlib.load(f), {"Label": "com.pacnpal.prherd", "RunAtLoad": True,
+                                                "ProgramArguments": ["/Apps/pr herd/prherd", "it's \"quoted\""]})
+        self.assertEqual(ca.login_item(False), "no longer opens at login")
+        self.assertFalse(os.path.exists(path))
+        self.assertFalse(ca.login_item_enabled())
+
+    def test_login_item_on_linux(self):
+        d = self.login_home("linux")
+        path = os.path.join(d, ".config", "autostart", "prherd.desktop")
+        self.assertEqual(ca.login_item_path(), path)
+        self.assertFalse(ca.login_item_enabled())
+        with mock.patch.object(ca, "launch_command", return_value=["/usr/bin/python3", "/home/o'neil/pr herd/100%.py"]):
+            self.assertEqual(ca.login_item(True), "opens at login")
+        self.assertTrue(ca.login_item_enabled())
+        self.assertEqual(pathlib.Path(path).read_text(encoding="utf-8"),
+                         "[Desktop Entry]\nType=Application\nName=prherd\n"
+                         "Exec=\"/usr/bin/python3\" \"/home/o'neil/pr herd/100%%.py\"\nTerminal=false\n")
+        self.assertEqual(ca.login_item(False), "no longer opens at login")
+        self.assertEqual((os.path.exists(path), ca.login_item_enabled()), (False, False))
+        # The spec's two rounds of escaping: \" $ ` and \ inside the quotes, then every backslash doubled.
+        self.assertEqual(ca.desktop_exec(['a"b', "$HOME", "`id`", "c\\d"]), r'"a\\"b" "\\$HOME" "\\`id\\`" "c\\\\d"')
+
+    def test_login_item_follows_xdg_config_home(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        d = self.login_home("linux", XDG_CONFIG_HOME=os.path.join(elsewhere.name, "cfg"))
+        path = os.path.join(elsewhere.name, "cfg", "autostart", "prherd.desktop")
+        self.assertEqual(ca.login_item_path(), path)
+        self.assertEqual(ca.login_item(True), "opens at login")
+        self.assertTrue(os.path.exists(path))
+        self.assertEqual(os.listdir(d), [])  # nothing under the home's .config
+
+    def test_login_item_failure_is_reported(self):
+        d = self.login_home("darwin")
+        pathlib.Path(d, "Library").write_text("a file where the folder should be")
+        self.assertRegex(ca.login_item(True), r"^open at login FAILED: .+")
+        self.assertFalse(ca.login_item_enabled())
+        with mock.patch("os.remove", side_effect=PermissionError(13, "Permission denied")):
+            self.assertRegex(ca.login_item(False), r"^turning off open at login FAILED: .*Permission denied")
+
+    def test_login_item_on_windows(self):
+        self.login_home("win32")
+        winreg = mock.MagicMock(HKEY_CURRENT_USER="HKCU", KEY_SET_VALUE="set", REG_SZ="sz")
+        key = winreg.OpenKey.return_value.__enter__.return_value
+        with mock.patch.dict("sys.modules", winreg=winreg), \
+                mock.patch.object(ca, "launch_command", return_value=[r"C:\Program Files\prherd\prherd.exe"]):
+            self.assertIsNone(ca.login_item_path())
+            self.assertEqual(ca.login_item(True), "opens at login")
+            winreg.OpenKey.assert_called_with("HKCU", r"Software\Microsoft\Windows\CurrentVersion\Run", 0, "set")
+            winreg.SetValueEx.assert_called_once_with(key, "prherd", 0, "sz", r'"C:\Program Files\prherd\prherd.exe"')
+            self.assertTrue(ca.login_item_enabled())
+            winreg.QueryValueEx.assert_called_once_with(key, "prherd")
+            self.assertEqual(ca.login_item(False), "no longer opens at login")
+            winreg.DeleteValue.assert_called_once_with(key, "prherd")
+            winreg.DeleteValue.side_effect = FileNotFoundError(2, "not there")  # already off
+            self.assertEqual(ca.login_item(False), "no longer opens at login")
+            winreg.QueryValueEx.side_effect = FileNotFoundError(2, "not there")
+            self.assertFalse(ca.login_item_enabled())
+            winreg.OpenKey.side_effect = PermissionError(13, "Access is denied")
+            self.assertEqual(ca.login_item(True), "open at login FAILED: [Errno 13] Access is denied")
+
+    def test_demo_gh_answers_the_new_calls(self):
+        demo = str(pathlib.Path(__file__).with_name("scripts") / "demo-gh" / "gh")
+        ask = lambda *args: subprocess.run([ca.sys.executable, demo, *args], capture_output=True, text=True,
+                                           env=dict(os.environ, DEMO_GH_LOG=os.devnull))
+        self.assertGreaterEqual(ca.gh_version(ask("--version").stdout), ca.GH_MIN)
+        with mock.patch.object(ca, "gh", lambda *args, cwd=None: ask(*args)):
+            self.assertEqual(ca.setup_checks(),
+                             [(True, "GitHub CLI installed", "gh 2.62.0"), (True, "Signed in", "demo")])
+            repo = "github.com/octo-org/storefront"
+            self.assertEqual(ca.pr_state(repo, 214), {"state": "OPEN", "mergedAt": None, "number": 214,
+                                                      "title": "Checkout: remember the last shipping address"})
+            self.assertEqual(ca.pr_state(repo, 1)["state"], "MERGED")  # not in its open list
+        # $DEMO_GH_GONE takes PRs out of the open list: they merged, and keep their titles.
+        gone = lambda *args: subprocess.run([ca.sys.executable, demo, *args], capture_output=True, text=True,
+                                            env=dict(os.environ, DEMO_GH_LOG=os.devnull, DEMO_GH_GONE="211,41"))
+        with mock.patch.object(ca, "gh", lambda *args, cwd=None: gone(*args)):
+            listed = ca.gh_json("pr", "list", "-R", repo, "--json", "number")
+            self.assertEqual([pr["number"] for pr in listed], [214, 213, 208])
+            self.assertEqual(ca.pr_state(repo, 211), {"state": "MERGED", "mergedAt": "2026-11-09T14:08:00Z",
+                                                      "number": 211, "title": "Bump actions/checkout from 4 to 5"})
+
     def test_modes(self):
         thumbs = THUMBS
         admin, force = FakeGh(reactions=thumbs), FakeGh(reactions=thumbs)
@@ -504,6 +1198,266 @@ class Test(unittest.TestCase):
             self.assertEqual(ca.request_review(REPO, "7"), "asked Codex for a review")
         self.assertEqual(fake.calls[0][0], ("pr", "comment", "7", "-R", REPO, "--body", "@codex review"))
 
+    def settle(self, root, done, what="the window never settled"):
+        """Pump the window until done() is true."""
+        deadline = time.time() + 10
+        while not done():
+            self.assertLess(time.time(), deadline, what)
+            root.update()
+            time.sleep(0.01)
+
+    def texts(self, widget):
+        """The text of every label under widget, in the order they were made."""
+        from tkinter import ttk
+        own = [str(widget.cget("text"))] if isinstance(widget, ttk.Label) and str(widget.cget("text")) else []
+        return own + [text for child in widget.winfo_children() for text in self.texts(child)]
+
+    def test_merge_sheet_merges_exactly_what_it_lists(self):
+        other = "0123456789abcdef0123456789abcdef01234567"
+        more = [{"number": 8, "labels": [{"name": "do-not-merge"}]}, {"number": 9, "headRefOid": other}]
+        pinned = lambda number, head: ("pr", "merge", str(number), "-R", REPO, "--squash", "--match-head-commit", head)
+        # Queue merges like Force here, with no --auto. Only Admin bypasses branch protection, and the sheet says which.
+        for mode, flags, says in (("", (), "Queue mode"), ("force", (), "Force mode"),
+                                  ("admin", ("--admin",), "Admin mode")):
+            fake = FakeGh(more=more)
+
+            def check(root, tree, buttons, wait_for):
+                app = root.app
+                wait_for("Awaiting Codex")  # no go-ahead: Merge now doesn't wait for one
+                app.mode_var.set(mode)
+                app.control(mode=mode)
+                tree.selection_set([f"{REPO}#{n}" for n in (7, 8, 9)])
+                app.merge_now()
+                said = self.texts(app.sheet.top)
+                self.assertIn("Merge 2 pull requests now?", said)
+                self.assertIn(says, said)
+                bypasses = any("bypass" in text and "still applies" not in text for text in said)
+                self.assertEqual(bypasses, mode == "admin")
+                self.assertLessEqual({HEAD[:7], other[:7], "#8"}, set(said))
+                self.assertEqual(app.sheet.merge_button.cget("text"), "Merge 2 now")
+                app.sheet.merge_button.invoke()
+                self.assertIsNone(app.sheet)
+                self.settle(root, lambda: len(fake.merges()) == 2, "never merged")
+
+            with mock.patch.object(ca.MergeSheet, "ARMED", 0):  # nobody here double-clicks
+                self.window(fake, check)
+            self.assertEqual(fake.merges(), [pinned(7, HEAD) + flags, pinned(9, other) + flags], mode)
+
+    def test_merge_sheet_cancels_unless_merge_has_the_focus(self):
+        fake = FakeGh(reactions=THUMBS)
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            tree.selection_set(ROW)
+            for key in ("<Return>", "<Escape>"):
+                app.merge_now()
+                root.update()
+                sheet = app.sheet
+                self.assertEqual(str(root.grab_current()), str(sheet.top))  # the main window waits behind it
+                self.assertEqual(str(sheet.top.focus_lastfor()), str(sheet.cancel_button))  # Cancel is the default
+                sheet.top.focus_lastfor().focus_force()  # the app has the focus, as it does with someone at it
+                sheet.top.event_generate(key)
+                self.assertIsNone(app.sheet)
+                self.assertFalse(sheet.top.winfo_exists())
+                self.assertIsNone(root.grab_current())
+            app.merge_now()
+            root.update()
+            sheet = app.sheet
+            sheet.merge_button.focus_force()  # Tab, or a click: only then does Return merge
+            sheet.top.event_generate("<Return>")
+            sheet.merge_button.invoke()
+            self.assertIs(app.sheet, sheet)  # but not this soon after it opened: that's a double click landing on it
+            root.update()
+            self.assertEqual(fake.merges(), [])
+            sheet.opened -= sheet.ARMED
+            sheet.top.event_generate("<Return>")
+            self.assertIsNone(app.sheet)
+            self.settle(root, fake.merges, "never merged")
+
+        self.window(fake, check)
+        self.assertEqual(fake.merges(), [("pr", "merge", "7", "-R", REPO, "--squash", "--match-head-commit", HEAD)])
+
+    def test_detail_panel_shows_the_selected_pr(self):
+        fake = FakeGh(reactions=THUMBS, auto={"enabledAt": AFTER}, more=[{"number": 8, "headRefName": "fix/cart"}])
+        other = f"{REPO}#8"
+
+        def check(root, tree, buttons, wait_for):
+            from tkinter import font
+            app, detail = root.app, root.app.detail
+            up = lambda: str(detail.frame) in map(str, app.body.panes())
+            wait_for("Thumbs up")
+            root.update()
+            self.assertFalse(up())  # nothing selected: no pane
+            tree.selection_set(ROW)
+            root.update()
+            self.assertTrue(up())
+            pr, said = app.prs[ROW], self.texts(detail.frame)
+            self.assertEqual(detail.card_title.cget("text"), "Cleared — queued to merge")
+            for text in ("octo/direct-repo", "#7", "t", "main", *ca.headline(pr, "👍")[1:],
+                         *(text for _, *texts in ca.readiness(pr, "👍") for text in texts if text)):
+                self.assertIn(text, said)
+            # The times poll() looked up reach the timeline, through the events queue.
+            self.assertEqual(app.details[REPO][7]["cleared_at"], AFTER)
+            now = time.time()
+            self.assertTrue(ca.when(PUSHED, now))
+            self.assertEqual([(what.cget("text"), at.cget("text")) for row, _, _, what, at in detail.events
+                              if row.winfo_manager()],
+                             [("Head bfd4fae pushed", ca.when(PUSHED, now)),
+                              ("Codex gave a thumbs-up", ca.when(AFTER, now)),
+                              ("Auto-merge queued behind checks", ca.when(AFTER, now))])
+            self.assertEqual(detail.hold.cget("text"), "Don't merge")
+            self.assertTrue(detail.merge.instate(["!disabled"]))
+
+            tree.selection_set([ROW, other])
+            root.update()
+            self.assertFalse(up())  # several: the selection bar has their actions
+            tree.selection_set(other)
+            root.update()
+            self.assertTrue(up())
+            self.assertEqual((detail.number.cget("text"), detail.branch.cget("text")), ("#8", "fix/cart"))
+            buttons["Close"].invoke()
+            root.update()
+            self.assertEqual((tree.selection(), up()), ((), False))
+
+            # A window too narrow to keep the PR column beside the pane goes without it, and gets it back when widened.
+            tree.selection_set(ROW)
+            root.update()
+            app.body.sashpos(0, 440)
+            root.geometry("800x500")
+            self.settle(root, lambda: not up(), "the pane stayed in a narrow window")
+            app.body.sashpos(0, 232)
+            root.geometry("1180x720")
+            self.settle(root, up, "the pane never came back")
+            default = font.nametofont("TkDefaultFont")
+            cut = ca.elide("a title that goes on " * 9, default, 120)
+            self.assertTrue(cut.endswith("…") and default.measure(cut) <= 120, cut)
+            self.assertEqual(ca.elide("short", default, 500), "short")
+
+        self.window(fake, check)
+
+    def test_detail_panel_buttons_obey_the_verdict(self):
+        fake = StatefulGh(reactions=THUMBS, labels=["do-not-merge"])
+
+        def held(root, tree, buttons, wait_for):
+            app, detail = root.app, root.app.detail
+            wait_for("Don't merge")
+            tree.selection_set(ROW)
+            root.update()
+            self.assertEqual(detail.card_title.cget("text"), "Held — won't merge")
+            self.assertEqual(detail.hold.cget("text"), "Allow merge")
+            self.assertTrue(detail.merge.instate(["disabled"]))
+            detail.merge.invoke()
+            self.assertIsNone(app.sheet)  # Merge now is off: it asked nothing
+            # poll() looks nothing up for a held PR, and the timeline says so.
+            self.assertEqual(app.details[REPO], {})
+            self.assertEqual((detail.blank.winfo_manager(), detail.blank.cget("text")),
+                             ("pack", "Not looked up while the pull request is held."))
+            detail.hold.invoke()
+            wait_for("Thumbs up")
+            root.update()
+            self.assertEqual(detail.hold.cget("text"), "Don't merge")
+            self.assertEqual(detail.blank.winfo_manager(), "")
+            self.assertTrue(detail.merge.instate(["!disabled"]))
+            detail.merge.invoke()
+            self.assertIn("Merge this pull request now?", self.texts(app.sheet.top))
+            app.sheet.cancel_button.invoke()
+
+        self.window(fake, held)
+        self.assertEqual((fake.labels, fake.merges()), ([], []))
+
+        def conflicting(root, tree, buttons, wait_for):
+            detail = root.app.detail
+            wait_for("Merge conflict")
+            tree.selection_set(ROW)
+            root.update()
+            self.assertEqual(detail.card_title.cget("text"), "Blocked by a merge conflict")
+            self.assertEqual(detail.hold.cget("text"), "Don't merge")
+            self.assertTrue(detail.merge.instate(["disabled"]))
+
+        self.window(FakeGh(mergeable="CONFLICTING"), conflicting)
+
+    def test_detail_panel_can_draw_every_check_and_event(self):
+        pr = {"number": 7, "headRefOid": HEAD, "baseRefName": "main", "autoMergeRequest": {"enabledAt": AFTER}}
+        detail = {"pushed": PUSHED, "reviewing_at": AFTER, "cleared_at": AFTER}
+        for v in ca.VERDICTS:
+            for kind in ({}, {"isDraft": True}, {"mergeable": "UNKNOWN"}, {"autoMergeRequest": None}):
+                tones = [tone for tone, _, _ in ca.readiness(dict(pr, **kind), v)]
+                tones += [ca.headline(dict(pr, **kind), v, merging)[0] for merging in (True, False)]
+                for tone in tones:
+                    self.assertTrue(tone in ca.Detail.MARKS or tone == "hold", tone)  # only the card is ever "hold"
+                    for palette in ca.PALETTE.values():
+                        self.assertLessEqual({f"{tone}-fg", f"{tone}-bg"}, set(palette))
+            self.assertEqual({tone for _, tone, _ in ca.timeline(pr, v, detail)} - {"none"},
+                             {"warn", "acc"} | ({"ok"} if v in ca.GO_AHEADS else set()))
+        self.assertLessEqual(set(ca.Detail.MARKS.values()), set(ca.ICONS))
+        self.assertEqual(ca.inset(((0, 12, 24, 12), ("o", 12, 12, 10)), 0.5), ((6, 12, 18, 12), ("o", 12, 12, 5)))
+
+    def test_when(self):
+        noon = time.mktime((*time.localtime()[:3], 12, 0, 0, 0, 0, -1))  # today's, here
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(noon))
+        self.assertEqual(ca.when(iso, noon + 3600), "12:00")  # today: the time of day
+        self.assertEqual(ca.when(iso, noon + 3 * 86400), "3d ago")
+        self.assertEqual(ca.when(iso, noon + 20 * 86400), "2w ago")
+        for bad in (None, "", "yesterday"):
+            self.assertEqual(ca.when(bad, noon), "")
+
+    def test_detail_width_round_trips_and_falls_back(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            ca.save_settings({"detail": 400})
+            self.assertEqual(ca.load_settings()["detail"], 400)
+            for bad in (20, 9000, "400", True, 400.5, None):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"detail": bad}))
+                self.assertEqual(ca.load_settings()["detail"], 320, bad)
+
+    def test_cli_flags_last_for_this_run_only(self):
+        # --admin once must not leave every later launch bypassing branch protection.
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            app = root.app
+            self.assertEqual((app.live["mode"], app.interval), ("admin", 7))
+            app.save()
+            self.assertEqual({k: self.saved()[k] for k in ("mode", "interval")}, {"mode": "", "interval": 300})
+            app.mode_var.set("force")  # chosen in the window: that one is saved
+            app.control(mode="force")
+            app.interval_var.set(90)
+            app.retime()
+            self.assertEqual({k: self.saved()[k] for k in ("mode", "interval")}, {"mode": "force", "interval": 90})
+
+        with tempfile.TemporaryDirectory() as d:
+            config = f"{d}/s.json"
+            pathlib.Path(config).write_text(json.dumps({"mode": "", "interval": 300}))
+            self.window(FakeGh(reactions=THUMBS), check, mode="admin", interval=7, config=config)
+
+    def test_interval_field_survives_what_can_be_typed(self):
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            app = root.app
+            for typed, seconds in (("inf", 3600), ("1e400", 3600), ("99999999999999999999", ca.MAX_INTERVAL),
+                                   ("abc", 3600), ("0", 1)):
+                app.interval = 3600
+                app.interval_var.set(typed)
+                self.assertEqual(app.seconds(), seconds, typed)
+                app.retime()  # neither raises nor stops the polling
+                app.schedule()
+                self.assertIn(app.timer, root.tk.call("after", "info"))
+                app.save()
+                self.assertLessEqual(self.saved()["interval"], ca.MAX_INTERVAL)
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_worker_failures_are_logged(self):
+        # gh gone after launch: a button's action fails in its thread, and says so rather than dying quietly.
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            app = root.app
+            tree.selection_set(ROW)
+            with mock.patch.object(ca, "gh", mock.Mock(side_effect=FileNotFoundError("no gh"))):
+                app.ask_codex()
+                self.logged(root, "failed: FileNotFoundError('no gh')")
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
     def test_args(self):
         self.assertEqual(ca.parse(["--admin", "--force", "a/b"]).mode, "force")
         self.assertEqual((ca.parse([]).mode, ca.parse([]).interval), (None, None))  # saved settings apply
@@ -515,18 +1469,37 @@ class Test(unittest.TestCase):
     def test_settings_round_trip(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/sub/s.json"):
             self.assertEqual(ca.load_settings(), {"repos": [], "mode": "", "interval": 60,
-                                                  "merging": True, "geometry": None, "appearance": "system"})
+                                                  "merging": True, "geometry": None, "detail": 320,
+                                                  "appearance": "system",
+                                                  "view": "all", "sidebar": 232, "log": True,
+                                                  "notify": dict.fromkeys(ca.NOTIFY_KINDS, True), "menubar": True})
             saved = {"repos": [REPO], "mode": "admin", "interval": 5, "merging": False, "geometry": "800x600+0+0",
-                     "appearance": "dark"}
+                     "detail": 400,
+                     "appearance": "dark", "view": "attention", "sidebar": 300, "log": False,
+                     "notify": dict(dict.fromkeys(ca.NOTIFY_KINDS, True), cleared=False), "menubar": False}
             ca.save_settings(saved)
             self.assertEqual(ca.load_settings(), saved)
 
     def test_bad_settings_are_not_trusted_or_overwritten(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
-            pathlib.Path(ca.CONFIG).write_text('{"mode": "foo", "interval": 0, "repos": [1, "a/b"], "merging": "no", '
-                                               '"appearance": "blue"}')
+            # Repos must be resolved ones: "" or a "#" would make a row the window takes for a PR, or no row at all.
+            pathlib.Path(ca.CONFIG).write_text(json.dumps({
+                "mode": "foo", "interval": 0, "repos": [1, "h/a/b", "a/b", "h/a/b#1", ""], "appearance": "blue"}))
             s = ca.load_settings()
-            self.assertEqual((s["mode"], s["interval"], s["repos"]), ("", 60, ["a/b"]))  # "foo" would force-merge
+            self.assertEqual((s["mode"], s["interval"], s["repos"]), ("", 60, ["h/a/b"]))  # "foo" would force-merge
+            for bad in ("no", "false", 0, None, 1):  # only true, or nothing saved, means merge
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"merging": bad}))
+                self.assertIs(ca.load_settings()["merging"], False, bad)
+            pathlib.Path(ca.CONFIG).write_text("{}")
+            self.assertIs(ca.load_settings()["merging"], True)
+            for bad in (10 ** 17, 86401, -5):  # past what Tk's timer can count: every launch would crash
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"interval": bad}))
+                self.assertEqual(ca.load_settings()["interval"], 60, bad)
+            for bad in ("garbage", "800x600", 3):  # Tk raises on a geometry it can't read
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"geometry": bad}))
+                self.assertIsNone(ca.load_settings()["geometry"], bad)
+            pathlib.Path(ca.CONFIG).write_text(json.dumps({"geometry": "900x600+-1500+40"}))  # a display to the left
+            self.assertEqual(ca.load_settings()["geometry"], "900x600+-1500+40")
             self.assertEqual(s["appearance"], "system")
             for bad in ("Dark", 1, None, ["dark"]):
                 pathlib.Path(ca.CONFIG).write_text(json.dumps({"appearance": bad}))
@@ -538,8 +1511,8 @@ class Test(unittest.TestCase):
 
     def test_settings_fall_back_to_pre_rename_file(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/prherd.json"):
-            pathlib.Path(f"{d}/codex-automerge.json").write_text('{"repos": ["a/b"]}')
-            self.assertEqual(ca.load_settings()["repos"], ["a/b"])
+            pathlib.Path(f"{d}/codex-automerge.json").write_text('{"repos": ["h/a/b"]}')
+            self.assertEqual(ca.load_settings()["repos"], ["h/a/b"])
             self.assertFalse(pathlib.Path(f"{d}/codex-automerge.json").exists())  # moved, can't resurface
             pathlib.Path(ca.CONFIG).unlink()
             self.assertEqual(ca.load_settings()["repos"], [])
@@ -548,6 +1521,433 @@ class Test(unittest.TestCase):
         procfile = pathlib.Path(__file__).with_name("Procfile").read_text()
         self.assertIn("prherd: ./prherd.py --headless --admin owner/repo", procfile)
 
+    def test_row_values_head_and_age(self):
+        pr = {"isDraft": False, "autoMergeRequest": None, "author": None, "headRefOid": HEAD, "updatedAt": PUSHED}
+        now = time.mktime(time.strptime("2026-10-26 14:17:58 UTC", "%Y-%m-%d %H:%M:%S %Z")) - time.timezone
+        self.assertEqual(ca.row_values(pr, "👍", now)[3:], ("bfd4fae", "3h"))
+        self.assertEqual(ca.row_values(dict(pr, headRefOid=None, updatedAt=None), "👍", now)[3:], ("", ""))
+
+    def test_age(self):
+        now = 1_800_000_000
+        for seconds, shown in ((30, "now"), (120, "2m"), (3 * 3600, "3h"), (2 * 86400, "2d"), (21 * 86400, "3w"),
+                               (800 * 86400, "2y"), (-300, "now")):  # the last: GitHub's clock ahead of this one
+            iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - seconds))
+            self.assertEqual(ca.age(iso, now), shown, iso)
+        for unreadable in (None, "", "yesterday", 5):
+            self.assertEqual(ca.age(unreadable, now), "")
+
+    def test_short_drops_only_github_com(self):
+        self.assertEqual(ca.short(REPO), "octo/direct-repo")
+        self.assertEqual(ca.short("github.example/acme/local-repo"), "github.example/acme/local-repo")
+
+    def test_matches_views_and_search(self):
+        pr = {"number": 214, "title": "Checkout: remember the address", "headRefName": "feat/remember",
+              "author": {"login": "mira-k"}}
+        shown = {view: [v for v in ca.VERDICTS if ca.matches(pr, v, view, "")] for view in ca.VIEWS}
+        self.assertEqual(shown, {"all": list(ca.VERDICTS), "ready": ["👍", "no major issues"], "reviewing": ["👀"],
+                                 "attention": ["merge conflict", "?"], "waiting": [None], "held": ["don't merge"]})
+        for query in ("checkout", "REMEMBER", "feat/", "mira", "214", "#214", "mira  checkout", " "):
+            self.assertTrue(ca.matches(pr, "👍", "all", query), query)
+        for query in ("cart", "#215", "mira cart"):  # every word has to be there
+            self.assertFalse(ca.matches(pr, "👍", "all", query), query)
+        self.assertFalse(ca.matches(pr, "👀", "ready", "checkout"))  # in the search, not in the view
+        # As the fake gh lists a PR: no branch. And a deleted account's PR has no author.
+        self.assertTrue(ca.matches({"number": 7, "title": "t", "author": None}, None, "waiting", "#7 t"))
+
+    def test_kind_of(self):
+        kinds = lambda log: [ca.kind_of(line) for line in log.splitlines()]
+        self.assertEqual(kinds(run(FakeGh(reactions=THUMBS))[1]), ["poll", "codex", "merge"])
+        self.assertEqual(kinds(run(FakeGh(reactions=[dict(THUMBS[0], content="eyes")]))[1]), ["poll", "review"])
+        self.assertEqual(kinds(run(FakeGh())[1]), ["poll", "poll"])
+        self.assertEqual(kinds(run(FakeGh(labels=["do-not-merge"], auto={"enabledAt": AFTER}))[1]),
+                         ["poll", "poll", "merge"])
+        self.assertEqual(kinds(run(FakeGh(mergeable="CONFLICTING"))[1]), ["poll", "conflict"])
+        self.assertEqual(kinds(run(FakeGh(mergeable="CONFLICTING", fail=["pr comment"]))[1]), ["poll", "error"])
+        self.assertEqual(kinds(run(FakeGh(fail=["api"]))[1]), ["poll", "error"])
+        self.assertEqual(kinds(run(FakeGh(fail=["pr list"]))[1]), ["error"])
+        self.assertEqual(kinds(run(FakeGh(reactions=THUMBS, merge=(1, "nope")))[1]), ["poll", "codex", "error"])
+        for msg, kind in (("asked Codex for a review", "review"), ("review request FAILED: boom", "error"),
+                          ("merged now (force)", "merge"), ("not merged — enabled auto-merge", "merge"),
+                          ("can't add octo/x: boom", "error"), ("poll crashed; retrying next interval", "error"),
+                          ("marked don't merge", "info"), ("branch updated", "info"), ("opened in browser", "info"),
+                          # A notification's line ends with a PR's title, which doesn't get to say what kind it is.
+                          ("notified: Merged #7 · Retry failed uploads", "notice"),
+                          ("notified: Merge conflict on #7 · t", "notice"),
+                          ("can't notify: Codex cleared #7 · t", "error")):
+            self.assertEqual(ca.kind_of(msg), kind, msg)
+
+    def test_split_log(self):
+        self.assertEqual(ca.split_log(f"  {ROW}: marked don't merge; skipping"),
+                         ("octo/direct-repo#7", "marked don't merge; skipping"))
+        self.assertEqual(ca.split_log(f"{REPO}: failed to list open PRs; retrying (HTTP 502: boom)"),
+                         ("octo/direct-repo", "failed to list open PRs; retrying (HTTP 502: boom)"))
+        self.assertEqual(ca.split_log("ghe.example/a/b#3: branch updated"), ("ghe.example/a/b#3", "branch updated"))
+        for msg in ("poll crashed; retrying next interval (boom)", "can't add octo/x: boom"):  # about no one PR
+            self.assertEqual(ca.split_log(msg), ("", msg))
+
+    def test_whoami(self):
+        answer = lambda out: lambda *args, cwd=None: subprocess.CompletedProcess(args, 0, out, "")
+        with mock.patch.object(ca, "gh", answer(json.dumps(ME))):
+            self.assertEqual(ca.whoami(), "watcher")
+        for unusable in (answer("[]"), answer(""), answer('{"message": "Bad credentials"}'), FakeGh(fail=["api"])):
+            with mock.patch.object(ca, "gh", unusable):
+                self.assertEqual(ca.whoami(), "")
+
+    def test_every_look_can_be_drawn(self):
+        # Each verdict, view and log kind names an icon and colors: all of them exist, in both palettes.
+        for look in (*ca.VERDICTS.values(), *ca.VIEWS.values()):
+            self.assertIn(look["icon"], ca.ICONS)
+        for palette in ca.PALETTE.values():
+            self.assertLessEqual({view["color"] for view in ca.VIEWS.values()}, set(palette))
+            for tone in [look["tone"] for look in ca.VERDICTS.values()] + [tone for _, tone, _ in ca.KINDS]:
+                self.assertLessEqual({f"{tone}-fg", f"{tone}-bg"}, set(palette))
+        for name, shapes in ca.ICONS.items():
+            png = ca.draw((("#4F46E5", 2, shapes),), 16, 16)
+            self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n", name)
+            self.assertEqual(png[16:24], (16).to_bytes(4, "big") * 2, name)  # its width and height
+        self.assertEqual(ca.mix("#000000", "#FFFFFF", 0.5), "#808080")
+
+    def test_layout_settings_round_trip_and_fall_back(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            layout = lambda: {key: ca.load_settings()[key] for key in ("view", "sidebar", "log")}
+            ca.save_settings({"view": "attention", "sidebar": 300, "log": False})
+            self.assertEqual(layout(), {"view": "attention", "sidebar": 300, "log": False})
+            for bad in ({"view": "everything"}, {"view": ["all"]}, {"view": None}, {"sidebar": 20}, {"sidebar": 9000},
+                        {"sidebar": "300"}, {"sidebar": True}, {"sidebar": 300.5}, {"log": "no"}, {"log": None}):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps(bad))
+                self.assertEqual(layout(), {"view": "all", "sidebar": 232, "log": True}, bad)
+
+    def test_window_view_and_search_filter_the_tree(self):
+        conflicting = {"number": 8, "title": "Cart badge", "headRefName": "fix/cart", "mergeable": "CONFLICTING"}
+        other = f"{REPO}#8"
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            listed = lambda: list(tree.get_children(REPO)) if tree.exists(REPO) else []
+            counts = lambda: {key: str(row.count.cget("text")) for key, row in app.view_rows.items()}
+            wait_for("Thumbs up")
+            self.assertEqual(listed(), [ROW, other])
+            self.assertEqual(tree.set(other, "codex"), "Merge conflict")
+            self.assertEqual(counts(), {"all": "2", "ready": "1", "reviewing": "0", "attention": "1", "waiting": "0",
+                                        "held": "0"})
+            app.pick_view("attention")
+            self.assertEqual(listed(), [other])
+            app.pick_view("held")
+            self.assertEqual(listed(), [])  # a repo with nothing in the view isn't listed either
+            app.pick_view("all")
+            for query, found in (("CART", [other]), ("fix/", [other]), ("#7", [ROW]), ("octocat", [ROW, other]),
+                                 ("nothing like it", []), ("", [ROW, other])):
+                app.query.set(query)
+                self.assertEqual(listed(), found, query)
+            app.pick_view("ready")
+            app.query.set("cart")  # both at once: the conflicting PR isn't ready
+            self.assertEqual(listed(), [])
+            self.assertEqual(counts()["attention"], "1")  # the counts are of the views, whatever the search
+
+        self.window(FakeGh(reactions=THUMBS, more=[conflicting]), check)
+
+    def test_window_selection_bar_and_countdown(self):
+        other = f"{REPO}#8"
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            root.update()
+            self.assertRegex(app.poll_button.cget("text"), r"^Poll now · \d+[sm]$")
+            tree.selection_set(ROW)
+            root.update()
+            self.assertFalse(app.selection_bar.winfo_ismapped())  # one PR: the right-click menu has its actions
+            tree.selection_set([ROW, other])
+            root.update()
+            self.assertTrue(app.selection_bar.winfo_ismapped())
+            self.assertEqual(app.selected.cget("text"), "2 selected")
+            offered = {text for text, button in buttons.items() if button.master is app.selection_bar
+                       and button.winfo_ismapped()}  # with "": the button that clears the selection has no text
+            self.assertEqual(offered, {"Request Codex review", "Don't merge", "Update branch", "Merge now…", ""})
+
+        self.window(FakeGh(reactions=THUMBS, more=[{"number": 8}]), check)
+
+    def test_notify_setting_round_trips_and_falls_back(self):
+        on = dict.fromkeys(ca.NOTIFY_KINDS, True)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            ca.save_settings({"notify": dict(on, merged=False, cleared=False)})
+            self.assertEqual(ca.load_settings()["notify"], dict(on, merged=False, cleared=False))
+            for bad in ("all", None, 1, ["merged"], {"merged": "no"}, {"conflict": 0, "other": False}):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"mode": "admin", "repos": ["h/a/b"], "notify": bad}))
+                s = ca.load_settings()
+                self.assertEqual(s["notify"], on, bad)
+                self.assertEqual((s["mode"], s["repos"]), ("admin", ["h/a/b"]), bad)  # the rest is kept
+
+    def test_can_merge(self):
+        def ask(code, out):
+            fake = self.answering({"repo view": (code, out)})
+            with mock.patch.object(ca, "gh", fake):
+                return ca.can_merge(REPO), fake.calls
+
+        answer, calls = ask(0, '{"viewerPermission": "ADMIN"}')
+        self.assertIs(answer, True)
+        self.assertEqual(calls, [("repo", "view", REPO, "--json", "viewerPermission")])
+        for permission, can in (("MAINTAIN", True), ("WRITE", True), ("TRIAGE", False), ("READ", False)):
+            self.assertIs(ask(0, json.dumps({"viewerPermission": permission}))[0], can, permission)
+        # gh failed, or said something else: unknown, not "can't".
+        for code, out in ((1, "GraphQL: Could not resolve to a Repository"), (0, "not json"), (0, "[]"), (0, "{}"),
+                          (0, '{"viewerPermission": null}'), (0, '{"viewerPermission": ""}')):
+            self.assertIsNone(ask(code, out)[0], out)
+        with mock.patch.object(ca, "gh", side_effect=FileNotFoundError("gh")):
+            self.assertIsNone(ca.can_merge(REPO))
+
+    def test_demo_gh_answers_merge_rights(self):
+        demo = str(pathlib.Path(__file__).with_name("scripts") / "demo-gh" / "gh")
+        ask = lambda *args, cwd=None: subprocess.run([ca.sys.executable, demo, *args], capture_output=True, text=True,
+                                                     env=dict(os.environ, DEMO_GH_LOG=os.devnull))
+        with mock.patch.object(ca, "gh", ask):
+            self.assertIs(ca.can_merge("github.com/octo-org/storefront"), True)
+            self.assertIs(ca.can_merge("github.com/octo-org/docs"), False)
+            self.assertEqual(ca.resolve("octo-org/docs"), "github.com/octo-org/docs")  # the plain view still answers
+
+    def test_can_notify(self):
+        with mock.patch.object(ca.sys, "platform", "darwin"), mock.patch("os.access", return_value=True) as access:
+            self.assertTrue(ca.can_notify())
+        access.assert_called_once_with("/usr/bin/osascript", os.X_OK)
+        for platform in ("linux", "win32"):
+            with mock.patch.object(ca.sys, "platform", platform):
+                with mock.patch("shutil.which", return_value="/usr/bin/notify-send"):
+                    self.assertTrue(ca.can_notify())
+                with mock.patch("shutil.which", return_value=None):
+                    self.assertFalse(ca.can_notify())
+
+    def test_reveal(self):
+        done = lambda code, err="": subprocess.CompletedProcess([], code, "", err)
+        path = os.path.join(os.sep, "home", "me", ".config", "prherd.json")
+        for platform, argv in (("darwin", ["/usr/bin/open", "-R", path]),
+                               ("win32", ["explorer", f"/select,{os.path.normpath(path)}"]),
+                               ("linux", ["xdg-open", os.path.dirname(path)])):
+            with mock.patch.object(ca.sys, "platform", platform), \
+                    mock.patch("subprocess.run", return_value=done(0)) as run:
+                self.assertEqual(ca.reveal(path), "")
+            self.assertEqual(run.call_args.args[0], argv)
+        with mock.patch.object(ca.sys, "platform", "linux"):
+            with mock.patch("subprocess.run", return_value=done(4, "no method available")):
+                self.assertEqual(ca.reveal(path), f"can't show {path}: no method available")
+            with mock.patch("subprocess.run", side_effect=FileNotFoundError(2, "No such file", "xdg-open")):
+                self.assertIn("can't show", ca.reveal(path))
+        with mock.patch.object(ca.sys, "platform", "win32"), mock.patch("subprocess.run", return_value=done(1)):
+            self.assertEqual(ca.reveal(path), "")  # Explorer exits 1 when it worked
+
+    def bare_window(self, fake, check):
+        """window(), launched with no repos: none saved, none passed."""
+        gui = ca.gui
+        with mock.patch.object(ca, "gui", lambda targets, mode, interval: gui([], mode, interval)):
+            self.window(fake, check)
+
+    def until(self, root, done, what):
+        """Pump the window until done() is true."""
+        deadline = time.time() + 10
+        while not done():
+            self.assertLess(time.time(), deadline, f"never {what}")
+            root.update()
+            time.sleep(0.01)
+
+    def kin(self, widget, kind):
+        """Every widget of a kind under widget."""
+        found = [child for child in widget.winfo_children() if isinstance(child, kind)]
+        return found + [w for child in widget.winfo_children() for w in self.kin(child, kind)]
+
+    def saved(self):
+        return json.loads(pathlib.Path(ca.CONFIG).read_text())
+
+    def test_first_run_shows_only_while_there_are_no_repos(self):
+        import threading
+        answer = threading.Event()
+
+        def checks():
+            answer.wait(10)
+            return [(True, "GitHub CLI installed", "gh 2.63.2"),
+                    (False, "Signed in", "run `gh auth login` in a terminal")]
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            first = app.first_run
+            up = lambda: (first.up, bool(first.screen.winfo_manager()), bool(app.table.winfo_manager()),
+                          str(app.sidebar) in app.body.panes(), bool(app.heading.winfo_manager()))
+            root.update()
+            self.assertEqual(up(), (True, True, False, False, False))  # it, and none of what it stands in for
+            # The setup checks: asked off the Tk thread, pending until they answer.
+            rows = lambda: [(row.title.cget("text"), row.found.cget("text"), row.problem.winfo_manager())
+                            for row in first.checks]
+            self.assertEqual(rows(), [("GitHub CLI installed", "checking…", ""), ("Signed in", "checking…", "")])
+            answer.set()
+            self.until(root, lambda: rows()[0][1] != "checking…", "showed the checks")
+            self.assertEqual(rows(), [("GitHub CLI installed", "gh 2.63.2", ""), ("Signed in", "", "grid")])
+            self.assertEqual(first.checks[1].problem.cget("text"), "run `gh auth login` in a terminal")
+            # A repo that can't be added says so here: the log, where it's also said, is put away.
+            self.assertTrue(first.entry.bind("<Return>"))
+            app.new_repo.set("octo/missing")
+            first.add()
+            self.assertEqual(first.status.cget("text"), "Adding octo/missing…")
+            self.until(root, lambda: str(first.status.cget("style")) == "Problem.TLabel", "said it failed")
+            self.assertIn("Can't add octo/missing: boom", first.status.cget("text"))
+            self.assertEqual(up(), (True, True, False, False, False))
+            # Adding one brings the table and the rest of the window back.
+            app.new_repo.set("octo/direct-repo")
+            first.add()
+            self.until(root, lambda: tree.exists(ROW), "listed the repo")
+            self.assertEqual(up(), (False, False, True, True, True))
+            self.assertEqual(app.body.panes()[0], str(app.sidebar))
+            self.assertEqual(self.saved()["repos"], [REPO])
+            # And removing the last one is a first run again.
+            app.remove([REPO])
+            root.update()
+            self.assertEqual(up(), (True, True, False, False, False))
+            self.assertEqual(first.status.cget("text"), first.HINT)
+            self.assertEqual(self.saved()["repos"], [])
+
+        with mock.patch.object(ca, "setup_checks", checks):
+            self.bare_window(FakeGh(reactions=THUMBS, fail=["octo/missing"]), check)
+
+    def test_first_run_stays_away_while_launch_repos_arrive(self):
+        def watching(root, tree, buttons, wait_for):
+            first = root.app.first_run
+            self.assertFalse(first.up)  # the repo passed at launch is still being looked up: not a first run
+            wait_for("Thumbs up")
+            self.assertEqual((first.up, first.screen), (False, None))  # never built
+
+        self.window(FakeGh(reactions=THUMBS), watching)
+
+        def unresolved(root, tree, buttons, wait_for):
+            first = root.app.first_run
+            self.until(root, lambda: first.up, "showed the first run")  # the one repo passed can't be added
+            self.assertIn("Can't add octo/direct-repo", first.status.cget("text"))
+
+        with mock.patch.object(ca, "setup_checks", lambda: []):
+            self.window(FakeGh(fail=["repo view"]), unresolved)
+
+    def test_settings_window_acts_through_the_app(self):
+        import tkinter as tk
+        from tkinter import ttk
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            gear = next(b for b in self.kin(app.sidebar, ttk.Button)
+                        if b.cget("image") and str(b.cget("image")[0]) == str(app.icon("sliders", "text-3", 15)))
+            gear.invoke()
+            prefs = app.prefs
+            gear.invoke()
+            app.settings()
+            self.assertIs(app.prefs, prefs)  # opened once; after that it's brought forward
+            self.assertEqual(len(self.kin(root, tk.Toplevel)), 1)
+            switch = lambda pane: self.kin(prefs.panes[pane], ttk.Checkbutton)
+
+            # Appearance: applied at once, to this window too, and saved.
+            for look in ("dark", "light"):
+                prefs.looks[look][0].event_generate("<Button-1>", x=5, y=5)
+                root.update()
+                self.assertEqual((app.appearance, app.dark, self.saved()["appearance"]), (look, look == "dark", look))
+                self.assertEqual(str(prefs.top.cget("background")).upper(), ca.PALETTE[look]["win"])
+                self.assertEqual(str(prefs.canvas.cget("background")).upper(), ca.PALETTE[look]["win"])
+                self.assertIn("selected", prefs.looks[look][1].state())
+
+            # The interval is the toolbar's own variable.
+            [spin] = self.kin(prefs.panes["general"], ttk.Spinbox)
+            self.assertEqual(str(spin.cget("textvariable")), str(app.interval_var))
+
+            # Merge mode, from here and from the toolbar: each shows in the other.
+            lit = lambda: {mode for mode, parts in prefs.mode_cards.items() if "selected" in parts[0].state()}
+            self.assertEqual(lit(), {""})
+            prefs.mode_cards["admin"][1].invoke()  # its radio button
+            root.update()
+            self.assertEqual((app.mode_var.get(), app.live["mode"], self.saved()["mode"]), ("admin",) * 3)
+            self.assertEqual((lit(), bool(app.admin_banner.winfo_manager()), bool(prefs.admin_note.winfo_manager())),
+                             ({"admin"}, True, True))
+            prefs.mode_cards["force"][3].event_generate("<Button-1>", x=2, y=2)  # anywhere else on a card
+            self.assertEqual((app.live["mode"], self.saved()["mode"], lit()), ("force", "force", {"force"}))
+            toolbar = next(r for r in self.kin(root, ttk.Radiobutton)
+                           if r.winfo_toplevel() is root and r.cget("text") == "Queue")
+            toolbar.invoke()
+            self.assertEqual((app.live["mode"], lit(), bool(prefs.admin_note.winfo_manager())), ("", {""}, False))
+
+            # Auto-merge: the toolbar's switch and this one are one variable.
+            [auto] = switch("merging")
+            auto.invoke()
+            self.assertEqual((app.merging.get(), app.live["merging"], self.saved()["merging"]), (False,) * 3)
+            self.assertTrue(app.paused_banner.winfo_manager())
+            auto.invoke()
+            self.assertEqual((app.live["merging"], self.saved()["merging"]), (True, True))
+
+            # Notifications: a switch a kind, kept on the App and saved.
+            on = dict.fromkeys(ca.NOTIFY_KINDS, True)
+            self.assertEqual(app.notify, on)
+            switch("notify")[ca.NOTIFY_KINDS.index("cleared")].invoke()
+            self.assertEqual(app.notify, dict(on, cleared=False))
+            self.assertEqual(self.saved()["notify"], dict(on, cleared=False))
+
+            # Open at login: written off the Tk thread, and the switch then shows what's true.
+            login = switch("general")[0]  # then, on macOS, Show in menu bar
+            self.assertFalse(prefs.login.get())
+            enabled.return_value = True
+            login.invoke()
+            self.until(root, lambda: login_item.called and "selected" in login.state(), "wrote the login item")
+            login_item.assert_called_once_with(True)
+            enabled.return_value = False  # as when writing it failed
+            login.invoke()
+            self.until(root, lambda: login_item.call_count == 2 and not prefs.login.get(), "re-read the login item")
+            self.assertEqual(login_item.call_args.args, (False,))
+
+            # Repositories: gh is asked what its account may do there, and the list is the App's own.
+            self.until(root, lambda: prefs.repo_rows[REPO].badge.cget("text") == "Can merge", "showed merge rights")
+            self.assertEqual(app.rights, {REPO: True})
+            self.assertEqual(prefs.repo_rows[REPO].note.cget("text"), "1 open")
+            [trash] = self.kin(prefs.repo_rows[REPO], ttk.Button)
+            trash.invoke()
+            self.assertEqual((app.repos, list(prefs.repo_rows), list(app.repo_rows), self.saved()["repos"]),
+                             ([], [], [], []))
+            self.assertTrue(app.first_run.up)
+            prefs.new_repo.set("octo/direct-repo")
+            prefs.add()
+            self.until(root, lambda: REPO in prefs.repo_rows and tree.exists(ROW), "added it back")
+            self.assertEqual((app.repos, list(app.repo_rows), app.first_run.up), ([REPO], [REPO], False))
+
+            # Closed, it leaves nothing behind that the App would still call.
+            root.tk.call(prefs.top.protocol("WM_DELETE_WINDOW"))  # its close box
+            self.assertIsNone(app.prefs)
+            self.assertEqual((self.kin(root, tk.Toplevel), app.followers), ([], [app.first_run.told]))
+            self.assertFalse({prefs.paint, prefs.told} & {*app.painters, *app.followers})
+            app.pick_view("ready")  # renders, and tells whoever follows
+            app.settings()
+            self.assertIsNot(app.prefs, prefs)
+
+        with mock.patch.object(ca, "login_item", return_value="opens at login") as login_item, \
+                mock.patch.object(ca, "login_item_enabled", return_value=False) as enabled, \
+                mock.patch.object(ca, "can_merge", return_value=True):
+            self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_settings_window_says_when_merge_rights_are_unknown_or_missing(self):
+        answers = iter([None, False])
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            for badge, rights in (("Unknown", {}), ("Can't merge", {REPO: False})):
+                app.settings()
+                self.assertEqual(app.prefs.repo_rows[REPO].badge.cget("text"), "Checking…")
+                self.until(root, lambda: app.prefs.repo_rows[REPO].badge.cget("text") == badge, f"said {badge}")
+                self.assertEqual(app.rights, rights)
+                app.prefs.close()
+
+        with mock.patch.object(ca, "can_merge", lambda repo: next(answers)):
+            self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_settings_panes_cover_every_mode_and_notification(self):
+        self.assertEqual(set(ca.Settings.MODE_HELP), {value for _, value in ca.MODES})
+        self.assertEqual(tuple(ca.Settings.NOTIFY_HELP), ca.NOTIFY_KINDS)
+        self.assertEqual([look for look, _ in ca.Settings.LOOKS], ["light", "dark", "system"])
+        self.assertEqual({look for look, _ in ca.Settings.LOOKS}, set(ca.APPEARANCES))
+        for _, _, icon in ca.Settings.PANES:
+            self.assertIn(icon, ca.ICONS)
+        self.assertEqual(ca.FirstRun.CHECKS, ("GitHub CLI installed", "Signed in"))  # as setup_checks() titles them
+        with mock.patch.object(ca, "gh", self.answering({})):
+            self.assertEqual(tuple(title for _, title, _ in ca.setup_checks()), ca.FirstRun.CHECKS)
 
 if __name__ == "__main__":
     unittest.main()
