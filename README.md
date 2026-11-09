@@ -57,36 +57,67 @@ work too).
 
 ### Window
 
-- **Add repo / Remove repo**: type `owner/repo` or a path and press Enter. You
-  can monitor any number of repos at once.
-- **Queue (--auto) / Force / Admin**: the merge mode (see Behavior).
-- **every N s**: the polling interval.
-- **Auto-merge**: untick it to watch without merging. Conflict comments are still posted.
-- **Request Codex review**: posts an `@codex review` comment on each selected PR.
-- **Don't merge / Allow merge**: adds or removes the `do-not-merge` label on each selected PR (see [Don't merge](#dont-merge)).
+**Toolbar**
+
+- **Search**: lists only the PRs whose number, title, branch or author has every word you type. ⌘K (Ctrl+K on
+  Windows and Linux) puts the cursor there, and Escape clears it.
+- **Queue / Force / Admin**: the merge mode (see Behavior). While it's Admin, a banner under the toolbar says that
+  merges bypass branch protection.
+- **Every N s**: the polling interval.
+- **Auto-merge**: switch it off to watch without merging. Conflict comments are still posted. While it's off, a
+  banner says so and has a **Resume merging** button.
+- **Poll now**: poll immediately. Its label counts down to the next poll.
+
+**Sidebar** (drag its edge to resize it)
+
+- **Views**, each with its count: All open, Ready to merge (Thumbs up or No major issues), Codex reviewing, Needs
+  attention (Merge conflict or Lookup failed), Awaiting Codex, and Don't merge. Click one to list only those PRs.
+- **Repositories**: each watched repo with its number of open PRs. Its dot is green when nothing is wrong, red when
+  one of its PRs needs attention, orange when its last poll failed, and grey until its first poll. Click a repo to
+  list only its PRs, and again to list them all.
+- **+**: opens a field. Type `owner/repo` or a path and press Enter. You can monitor any number of repos at once.
+- **Right-click a repo** (here or in the list): Open in browser, Copy link, Refresh (without merging), and Remove repo.
+- The account `gh` is signed in as is at the bottom.
+
+**Pull requests**
+
+The list groups each repo's open PRs under it. A newly added repo is shown right away. Merging starts on the next poll.
+
+- **Pull request**: its number, title and branch. The icon beside it is Codex's verdict.
+- **Codex**: Thumbs up (a 👍 reaction), No major issues (a clean review comment), Reviewing (Codex reacted 👀), Merge
+  conflict, Don't merge, Awaiting Codex (no verdict yet), or Lookup failed. Merge conflict and Lookup failed rows are tinted.
+- **Author**, and **State**: Open, Draft, or Queued if auto-merge is on.
+- **Head**: the start of the commit the PR is at. **Age**: how long since the PR last changed. A narrow window
+  leaves out Head, then Age.
 - **Right-click a PR** (or Control-click): Open in browser, Copy link, Merge now, Don't merge, Allow merge, Update branch, and Request Codex review. These act on every selected PR. Double-click a PR to open it in the browser.
-- **Right-click a repo**: Open in browser, Copy link, Refresh (without merging), and Remove repo.
+- **Select two or more PRs** and a bar over the heading offers Request Codex review, Don't merge, Allow merge, Update
+  branch, and Merge now for all of them.
+
+**Request Codex review** posts an `@codex review` comment on each selected PR. **Don't merge** and **Allow merge**
+add or remove the `do-not-merge` label on each selected PR (see [Don't merge](#dont-merge)).
 
 **Merge now** asks first, then squash-merges the selected PRs without waiting for
-Codex, even with Auto-merge unticked. It's limited to the commit shown, so GitHub
+Codex, even with Auto-merge off. It's limited to the commit shown, so GitHub
 refuses it if someone has pushed since. It skips PRs showing Don't merge or
 Merge conflict, and it uses `--admin` only when the window's mode is Admin.
 Otherwise it behaves like Force, so branch protection still applies.
 
 **Update branch** merges the base branch into the PR. That's a new commit, so
 Codex's go-ahead no longer counts until it reviews again.
-- **Poll now**: poll immediately.
 
-The tree lists each repo's open PRs with their author and state (`draft`, or `queued` if auto-merge is on), and Codex's verdict on each:
-Thumbs up (a 👍 reaction), No major issues (a clean review comment), Reviewing (Codex reacted 👀), Merge conflict, Don't merge,
-Awaiting Codex (no verdict yet), or Lookup failed. A newly added repo is shown right away. Merging starts on the next poll.
+**Activity**
+
+The log, newest line first. Each line has its time and what kind it is: merge, codex (a go-ahead), conflict, review,
+error, poll, or info. Click **Activity** to collapse or expand it. Its header shows Live, or Watching while Auto-merge
+is off, and how long until the next poll.
 
 The window follows the system's light or dark appearance, and switches within a poll interval when the
 system does. To pin it, set `"appearance"` to `"light"` or `"dark"` in the settings file below
 (`"system"` is the default).
 
 The window saves its repo list, merge mode, interval, Auto-merge setting,
-appearance, and size to `$XDG_CONFIG_HOME/prherd.json` (default
+appearance, size, chosen view, sidebar width, and whether the activity log is
+collapsed to `$XDG_CONFIG_HOME/prherd.json` (default
 `~/.config/prherd.json`) whenever one changes and when you close it,
 and restores them at the next launch. `repo` arguments are added to the saved
 list. `--force`, `--admin`, and `--interval` override the saved values. If the
