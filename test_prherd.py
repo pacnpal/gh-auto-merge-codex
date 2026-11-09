@@ -297,9 +297,8 @@ class Test(unittest.TestCase):
         self.window(FakeGh(mergeable="CONFLICTING"), conflicting)
 
     def test_merge_now_skips_held_and_conflicting_prs(self):
-        held = {"number": 8, "labels": [{"name": "do-not-merge"}]}
-        fake = FakeGh(reactions=THUMBS, more=[held, {"number": 9, "mergeable": "CONFLICTING"}])
-        asked = []
+        held = {"number": 8, "title": "held", "labels": [{"name": "do-not-merge"}]}
+        fake = FakeGh(reactions=THUMBS, more=[held, {"number": 9, "title": "conflicting", "mergeable": "CONFLICTING"}])
 
         def check(root, tree, buttons, wait_for):
             wait_for("Thumbs up")
@@ -307,15 +306,21 @@ class Test(unittest.TestCase):
             tree.selection_set([f"{REPO}#{n}" for n in (7, 8, 9)])
             menu, states = self.menu_for(root, tree)
             self.assertEqual(states["Merge now…"], "normal")
-            with mock.patch("tkinter.messagebox.askyesno", side_effect=lambda *a, **k: asked.append(a[1])):
-                menu.invoke("Merge now…")
+            menu.invoke("Merge now…")
+            sheet = root.app.sheet
+            said = self.texts(sheet.top)
+            self.assertIn("Merge this pull request now?", said)
+            # #7 with the commit it merges at; then #8 and #9, skipped, each with why.
+            self.assertEqual(said[said.index("t"):][:9],
+                             ["t", "octo/direct-repo #7", HEAD[:7], "held", "Skipped — marked don't merge", "#8",
+                              "conflicting", "Skipped — merge conflict", "#9"])
+            self.assertEqual(sheet.merge_button.cget("text"), "Merge now")
+            sheet.cancel_button.invoke()
+            self.assertIsNone(root.app.sheet)
+            root.update()
 
         self.window(fake, check)
-        [question] = asked
-        self.assertIn("#7 t (Thumbs up)", question)
-        self.assertNotIn("#8", question)
-        self.assertNotIn("#9", question)
-        self.assertEqual(fake.merges(), [])  # declined
+        self.assertEqual(fake.merges(), [])  # cancelled
 
     def test_window_follows_system_appearance(self):
         # Re-checked on each tick; the window is re-themed only when it changes.
@@ -923,6 +928,218 @@ class Test(unittest.TestCase):
             self.assertEqual(ca.request_review(REPO, "7"), "asked Codex for a review")
         self.assertEqual(fake.calls[0][0], ("pr", "comment", "7", "-R", REPO, "--body", "@codex review"))
 
+    def settle(self, root, done, what="the window never settled"):
+        """Pump the window until done() is true."""
+        deadline = time.time() + 10
+        while not done():
+            self.assertLess(time.time(), deadline, what)
+            root.update()
+            time.sleep(0.01)
+
+    def texts(self, widget):
+        """The text of every label under widget, in the order they were made."""
+        from tkinter import ttk
+        own = [str(widget.cget("text"))] if isinstance(widget, ttk.Label) and str(widget.cget("text")) else []
+        return own + [text for child in widget.winfo_children() for text in self.texts(child)]
+
+    def test_merge_sheet_merges_exactly_what_it_lists(self):
+        other = "0123456789abcdef0123456789abcdef01234567"
+        more = [{"number": 8, "labels": [{"name": "do-not-merge"}]}, {"number": 9, "headRefOid": other}]
+        pinned = lambda number, head: ("pr", "merge", str(number), "-R", REPO, "--squash", "--match-head-commit", head)
+        # Queue merges like Force here, with no --auto. Only Admin bypasses branch protection, and the sheet says which.
+        for mode, flags, says in (("", (), "Queue mode"), ("force", (), "Force mode"),
+                                  ("admin", ("--admin",), "Admin mode")):
+            fake = FakeGh(more=more)
+
+            def check(root, tree, buttons, wait_for):
+                app = root.app
+                wait_for("Awaiting Codex")  # no go-ahead: Merge now doesn't wait for one
+                app.mode_var.set(mode)
+                app.control(mode=mode)
+                tree.selection_set([f"{REPO}#{n}" for n in (7, 8, 9)])
+                app.merge_now()
+                said = self.texts(app.sheet.top)
+                self.assertIn("Merge 2 pull requests now?", said)
+                self.assertIn(says, said)
+                bypasses = any("bypass" in text and "still applies" not in text for text in said)
+                self.assertEqual(bypasses, mode == "admin")
+                self.assertLessEqual({HEAD[:7], other[:7], "#8"}, set(said))
+                self.assertEqual(app.sheet.merge_button.cget("text"), "Merge 2 now")
+                app.sheet.merge_button.invoke()
+                self.assertIsNone(app.sheet)
+                self.settle(root, lambda: len(fake.merges()) == 2, "never merged")
+
+            with mock.patch.object(ca.MergeSheet, "ARMED", 0):  # nobody here double-clicks
+                self.window(fake, check)
+            self.assertEqual(fake.merges(), [pinned(7, HEAD) + flags, pinned(9, other) + flags], mode)
+
+    def test_merge_sheet_cancels_unless_merge_has_the_focus(self):
+        fake = FakeGh(reactions=THUMBS)
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            tree.selection_set(ROW)
+            for key in ("<Return>", "<Escape>"):
+                app.merge_now()
+                root.update()
+                sheet = app.sheet
+                self.assertEqual(str(root.grab_current()), str(sheet.top))  # the main window waits behind it
+                self.assertEqual(str(sheet.top.focus_lastfor()), str(sheet.cancel_button))  # Cancel is the default
+                sheet.top.focus_lastfor().focus_force()  # the app has the focus, as it does with someone at it
+                sheet.top.event_generate(key)
+                self.assertIsNone(app.sheet)
+                self.assertFalse(sheet.top.winfo_exists())
+                self.assertIsNone(root.grab_current())
+            app.merge_now()
+            root.update()
+            sheet = app.sheet
+            sheet.merge_button.focus_force()  # Tab, or a click: only then does Return merge
+            sheet.top.event_generate("<Return>")
+            sheet.merge_button.invoke()
+            self.assertIs(app.sheet, sheet)  # but not this soon after it opened: that's a double click landing on it
+            root.update()
+            self.assertEqual(fake.merges(), [])
+            sheet.opened -= sheet.ARMED
+            sheet.top.event_generate("<Return>")
+            self.assertIsNone(app.sheet)
+            self.settle(root, fake.merges, "never merged")
+
+        self.window(fake, check)
+        self.assertEqual(fake.merges(), [("pr", "merge", "7", "-R", REPO, "--squash", "--match-head-commit", HEAD)])
+
+    def test_detail_panel_shows_the_selected_pr(self):
+        fake = FakeGh(reactions=THUMBS, auto={"enabledAt": AFTER}, more=[{"number": 8, "headRefName": "fix/cart"}])
+        other = f"{REPO}#8"
+
+        def check(root, tree, buttons, wait_for):
+            from tkinter import font
+            app, detail = root.app, root.app.detail
+            up = lambda: str(detail.frame) in map(str, app.body.panes())
+            wait_for("Thumbs up")
+            root.update()
+            self.assertFalse(up())  # nothing selected: no pane
+            tree.selection_set(ROW)
+            root.update()
+            self.assertTrue(up())
+            pr, said = app.prs[ROW], self.texts(detail.frame)
+            self.assertEqual(detail.card_title.cget("text"), "Cleared — queued to merge")
+            for text in ("octo/direct-repo", "#7", "t", "main", *ca.headline(pr, "👍")[1:],
+                         *(text for _, *texts in ca.readiness(pr, "👍") for text in texts if text)):
+                self.assertIn(text, said)
+            # The times poll() looked up reach the timeline, through the events queue.
+            self.assertEqual(app.details[REPO][7]["cleared_at"], AFTER)
+            now = time.time()
+            self.assertTrue(ca.when(PUSHED, now))
+            self.assertEqual([(what.cget("text"), at.cget("text")) for row, _, _, what, at in detail.events
+                              if row.winfo_manager()],
+                             [("Head bfd4fae pushed", ca.when(PUSHED, now)),
+                              ("Codex gave a thumbs-up", ca.when(AFTER, now)),
+                              ("Auto-merge queued behind checks", ca.when(AFTER, now))])
+            self.assertEqual(detail.hold.cget("text"), "Don't merge")
+            self.assertTrue(detail.merge.instate(["!disabled"]))
+
+            tree.selection_set([ROW, other])
+            root.update()
+            self.assertFalse(up())  # several: the selection bar has their actions
+            tree.selection_set(other)
+            root.update()
+            self.assertTrue(up())
+            self.assertEqual((detail.number.cget("text"), detail.branch.cget("text")), ("#8", "fix/cart"))
+            buttons["Close"].invoke()
+            root.update()
+            self.assertEqual((tree.selection(), up()), ((), False))
+
+            # A window too narrow to keep the PR column beside the pane goes without it, and gets it back when widened.
+            tree.selection_set(ROW)
+            root.update()
+            app.body.sashpos(0, 440)
+            root.geometry("800x500")
+            self.settle(root, lambda: not up(), "the pane stayed in a narrow window")
+            app.body.sashpos(0, 232)
+            root.geometry("1180x720")
+            self.settle(root, up, "the pane never came back")
+            default = font.nametofont("TkDefaultFont")
+            cut = ca.elide("a title that goes on " * 9, default, 120)
+            self.assertTrue(cut.endswith("…") and default.measure(cut) <= 120, cut)
+            self.assertEqual(ca.elide("short", default, 500), "short")
+
+        self.window(fake, check)
+
+    def test_detail_panel_buttons_obey_the_verdict(self):
+        fake = StatefulGh(reactions=THUMBS, labels=["do-not-merge"])
+
+        def held(root, tree, buttons, wait_for):
+            app, detail = root.app, root.app.detail
+            wait_for("Don't merge")
+            tree.selection_set(ROW)
+            root.update()
+            self.assertEqual(detail.card_title.cget("text"), "Held — won't merge")
+            self.assertEqual(detail.hold.cget("text"), "Allow merge")
+            self.assertTrue(detail.merge.instate(["disabled"]))
+            detail.merge.invoke()
+            self.assertIsNone(app.sheet)  # Merge now is off: it asked nothing
+            # poll() looks nothing up for a held PR, and the timeline says so.
+            self.assertEqual(app.details[REPO], {})
+            self.assertEqual((detail.blank.winfo_manager(), detail.blank.cget("text")),
+                             ("pack", "Not looked up while the pull request is held."))
+            detail.hold.invoke()
+            wait_for("Thumbs up")
+            root.update()
+            self.assertEqual(detail.hold.cget("text"), "Don't merge")
+            self.assertEqual(detail.blank.winfo_manager(), "")
+            self.assertTrue(detail.merge.instate(["!disabled"]))
+            detail.merge.invoke()
+            self.assertIn("Merge this pull request now?", self.texts(app.sheet.top))
+            app.sheet.cancel_button.invoke()
+
+        self.window(fake, held)
+        self.assertEqual((fake.labels, fake.merges()), ([], []))
+
+        def conflicting(root, tree, buttons, wait_for):
+            detail = root.app.detail
+            wait_for("Merge conflict")
+            tree.selection_set(ROW)
+            root.update()
+            self.assertEqual(detail.card_title.cget("text"), "Blocked by a merge conflict")
+            self.assertEqual(detail.hold.cget("text"), "Don't merge")
+            self.assertTrue(detail.merge.instate(["disabled"]))
+
+        self.window(FakeGh(mergeable="CONFLICTING"), conflicting)
+
+    def test_detail_panel_can_draw_every_check_and_event(self):
+        pr = {"number": 7, "headRefOid": HEAD, "baseRefName": "main", "autoMergeRequest": {"enabledAt": AFTER}}
+        detail = {"pushed": PUSHED, "reviewing_at": AFTER, "cleared_at": AFTER}
+        for v in ca.VERDICTS:
+            for kind in ({}, {"isDraft": True}, {"mergeable": "UNKNOWN"}, {"autoMergeRequest": None}):
+                tones = [tone for tone, _, _ in ca.readiness(dict(pr, **kind), v)]
+                tones += [ca.headline(dict(pr, **kind), v, merging)[0] for merging in (True, False)]
+                for tone in tones:
+                    self.assertTrue(tone in ca.Detail.MARKS or tone == "hold", tone)  # only the card is ever "hold"
+                    for palette in ca.PALETTE.values():
+                        self.assertLessEqual({f"{tone}-fg", f"{tone}-bg"}, set(palette))
+            self.assertEqual({tone for _, tone, _ in ca.timeline(pr, v, detail)} - {"none"},
+                             {"warn", "acc"} | ({"ok"} if v in ca.GO_AHEADS else set()))
+        self.assertLessEqual(set(ca.Detail.MARKS.values()), set(ca.ICONS))
+        self.assertEqual(ca.inset(((0, 12, 24, 12), ("o", 12, 12, 10)), 0.5), ((6, 12, 18, 12), ("o", 12, 12, 5)))
+
+    def test_when(self):
+        noon = time.mktime((*time.localtime()[:3], 12, 0, 0, 0, 0, -1))  # today's, here
+        iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(noon))
+        self.assertEqual(ca.when(iso, noon + 3600), "12:00")  # today: the time of day
+        self.assertEqual(ca.when(iso, noon + 3 * 86400), "3d ago")
+        self.assertEqual(ca.when(iso, noon + 20 * 86400), "2w ago")
+        for bad in (None, "", "yesterday"):
+            self.assertEqual(ca.when(bad, noon), "")
+
+    def test_detail_width_round_trips_and_falls_back(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            ca.save_settings({"detail": 400})
+            self.assertEqual(ca.load_settings()["detail"], 400)
+            for bad in (20, 9000, "400", True, 400.5, None):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"detail": bad}))
+                self.assertEqual(ca.load_settings()["detail"], 320, bad)
+
     def test_args(self):
         self.assertEqual(ca.parse(["--admin", "--force", "a/b"]).mode, "force")
         self.assertEqual((ca.parse([]).mode, ca.parse([]).interval), (None, None))  # saved settings apply
@@ -934,10 +1151,12 @@ class Test(unittest.TestCase):
     def test_settings_round_trip(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/sub/s.json"):
             self.assertEqual(ca.load_settings(), {"repos": [], "mode": "", "interval": 60,
-                                                  "merging": True, "geometry": None, "appearance": "system",
+                                                  "merging": True, "geometry": None, "detail": 320,
+                                                  "appearance": "system",
                                                   "view": "all", "sidebar": 232, "log": True,
                                                   "notify": dict.fromkeys(ca.NOTIFY_KINDS, True)})
             saved = {"repos": [REPO], "mode": "admin", "interval": 5, "merging": False, "geometry": "800x600+0+0",
+                     "detail": 400,
                      "appearance": "dark", "view": "attention", "sidebar": 300, "log": False,
                      "notify": {"merged": True, "conflict": False, "failed": True, "cleared": False}}
             ca.save_settings(saved)
@@ -1356,7 +1575,8 @@ class Test(unittest.TestCase):
             # Closed, it leaves nothing behind that the App would still call.
             root.tk.call(prefs.top.protocol("WM_DELETE_WINDOW"))  # its close box
             self.assertIsNone(app.prefs)
-            self.assertEqual((self.kin(root, tk.Toplevel), app.followers, app.painters), ([], [app.first_run.told], []))
+            self.assertEqual((self.kin(root, tk.Toplevel), app.followers), ([], [app.first_run.told]))
+            self.assertFalse({prefs.paint, prefs.told} & {*app.painters, *app.followers})
             app.pick_view("ready")  # renders, and tells whoever follows
             app.settings()
             self.assertIsNot(app.prefs, prefs)

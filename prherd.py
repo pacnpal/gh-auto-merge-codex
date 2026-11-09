@@ -598,6 +598,7 @@ def load_settings():
         "interval": interval if type(interval) is int and interval > 0 else 60,
         "merging": s.get("merging") is not False,
         "geometry": geometry if isinstance(geometry, str) else None,
+        "detail": s["detail"] if type(s.get("detail")) is int and DETAIL[0] <= s["detail"] <= DETAIL[1] else 320,
         "appearance": s.get("appearance") if s.get("appearance") in APPEARANCES else "system",
         "view": view if isinstance(view, str) and view in VIEWS else "all",
         "sidebar": sidebar if type(sidebar) is int and SIDEBAR[0] <= sidebar <= SIDEBAR[1] else 232,
@@ -730,6 +731,7 @@ KINDS = (
     ("poll", "hold", ("open pr(s)", "review yet", "skipping")),
 )
 SIDEBAR = (160, 480)  # the narrowest and widest sidebar a saved width restores
+DETAIL = (280, 520)  # and the same for the detail panel
 # The window's icons, after the design's (Lucide): strokes on a 24-unit grid, each a polyline x0, y0, x1, y1, ...
 # or a ring ("o", cx, cy, r). A polyline that doesn't move is a dot.
 ICONS = {
@@ -763,6 +765,13 @@ ICONS = {
               19.4, 15.4, 21, 17, 3, 17), (10.3, 21, 11.1, 21.8, 12.9, 21.8, 13.7, 21)),
     "trash": ((3, 6, 21, 6), (8, 6, 8, 4, 10, 2, 14, 2, 16, 4, 16, 6), (19, 6, 18, 20, 16, 22, 8, 22, 6, 20, 5, 6)),
     "plus": ((12, 5, 12, 19), (5, 12, 19, 12)),
+    "merge": (("o", 6, 6, 3), ("o", 18, 18, 3), (6, 9, 6, 21), (6, 9, 6.7, 12.4, 8.6, 15.4, 11.6, 17.3, 15, 18)),
+    "external": ((15, 3, 21, 3, 21, 9), (10, 14, 21, 3), (18, 13, 18, 19, 17.4, 20.4, 16, 21, 5, 21, 3.6, 20.4, 3, 19,
+                                                          3, 8, 3.6, 6.6, 5, 6, 11, 6)),
+    "arrow": ((5, 12, 19, 12), (13, 6, 19, 12, 13, 18)),
+    "tick": ((20, 6, 9, 17, 4, 12),),
+    "bang": ((12, 7, 12, 13), (12, 17, 12, 17)),
+    "minus": ((6, 12, 18, 12),),
     "x": ((6, 6, 18, 18), (18, 6, 6, 18)),
     "down": ((6, 9, 12, 15, 18, 9),),
     "right": ((9, 6, 15, 12, 9, 18),),
@@ -838,6 +847,7 @@ def fonts(root):
             return f
 
         root.fonts = {"bold": cut("TkDefaultFont", weight="bold"), "small": cut("TkDefaultFont", -2),
+                      "head": cut("TkDefaultFont", 3, "bold"),
                       "caps": cut("TkDefaultFont", -2, "bold"), "title": cut("TkDefaultFont", 6, "bold"),
                       "mono": cut("TkFixedFont")}
         root.fonts.update(hero=cut("TkDefaultFont", 13, "bold"), lead=cut("TkDefaultFont", 1))  # the first run's
@@ -900,6 +910,31 @@ def theme(root, dark, appearance="system"):
     s.map("Treeview.Heading", background=[("active", p["hover"])])
     s.configure("Treeview.Item", padding=(2, 0, 10, 0))  # so a title cut short stops shy of the next column
     s.configure("Treeview.Cell", padding=(4, 0, 10, 0))  # and the right-aligned ages shy of the edge
+    # The detail panel and the Merge now sheet. The panel's status card comes in every verdict's tone.
+    for tone in {look["tone"] for look in VERDICTS.values()}:
+        s.configure(f"{tone}.Card.TFrame", background=p[f"{tone}-bg"])
+        s.configure(f"{tone}.Card.TLabel", background=p[f"{tone}-bg"], foreground=p["text-2"], font=f["small"])
+        s.configure(f"Title.{tone}.Card.TLabel", foreground=p[f"{tone}-fg"], font=f["bold"])
+    s.configure("Head.TLabel", font=f["head"])
+    s.configure("Caps.TLabel", foreground=p["muted"], font=f["caps"])
+    s.configure("Note.TLabel", foreground=p["muted"], font=f["small"])
+    s.configure("Mono.Note.TLabel", font=f["mono"])
+    s.configure("Chip.TLabel", background=p["hover"], foreground=p["text-3"], font=f["mono"], padding=(6, 2))
+    # A PR the sheet lists as skipped: a muted row, with why in the conflict color.
+    s.configure("Skip.TFrame", background=p["row-hover"])
+    s.configure("Skip.TLabel", background=p["row-hover"], foreground=p["none-fg"])
+    s.configure("Why.Skip.TLabel", foreground=p["bad-fg"], font=f["small"])
+    s.configure("Mono.Skip.TLabel", foreground=p["muted"], font=f["mono"])
+    button("Pane.TButton", p["field"], p["text"], p["field-border"], p["hover"], p["side-on"], padding=(10, 7))
+    button("Icon.TButton", p["win"], p["text-3"], p["win"], p["hover"], padding=4)
+    # Merge now is the design's accent with white on it, in either appearance. Its focus ring is white too: the
+    # sheet's Return key goes by which button has it, so it has to show.
+    accent = PALETTE["light"]["acc-dot"]
+    button("Accent.TButton", accent, "#FFFFFF", accent, accent, font=f["bold"], padding=(14, 7), focuscolor="#FFFFFF")
+    faded = mix(accent, p["win"], 0.65)
+    over = [("disabled", faded), ("pressed", mix(accent, "#000000", 0.26)), ("active", mix(accent, "#000000", 0.14))]
+    s.map("Accent.TButton", background=over, lightcolor=over, darkcolor=over, bordercolor=over,
+          foreground=[("disabled", mix("#FFFFFF", faded, 0.6 if dark else 0.3))])
     # A scrollbar is a thumb and nothing else: no arrows, no visible trough.
     thumb = mix(p["win"], p["faint"], 0.5)
     s.layout("Vertical.TScrollbar", [("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
@@ -1042,6 +1077,436 @@ def watch(repos, mode, interval):
         time.sleep(interval)
 
 
+def when(iso, now):
+    """A GitHub timestamp as the detail panel's timeline says it: the local time of day if that was today, else how
+    long ago, as age() counts it. "" if it's missing or unreadable."""
+    try:
+        at = time.localtime(calendar.timegm(time.strptime(iso, "%Y-%m-%dT%H:%M:%SZ")))
+    except (TypeError, ValueError):
+        return ""
+    if at[:3] == time.localtime(now)[:3]:
+        return time.strftime("%H:%M", at)
+    ago = age(iso, now)
+    return ago if ago == "now" else f"{ago} ago"
+
+
+def inset(shapes, scale):
+    """ICONS shapes shrunk towards the middle of the grid, to sit inside a badge."""
+    at = lambda c: 12 + (c - 12) * scale
+    return tuple(("o", at(s[1]), at(s[2]), s[3] * scale) if s[0] == "o" else tuple(map(at, s)) for s in shapes)
+
+
+def elide(text, font, width):
+    """text, cut short with an ellipsis if it's wider than width pixels in font. A label only clips."""
+    if font.measure(text) <= width:
+        return text
+    while text and font.measure(text + "…") > width:
+        text = text[:-1]
+    return text.rstrip() + "…"
+
+
+def badge(app, tone, mark, size=18):
+    """A disc in a tone's colors with one of ICONS inside: a readiness check's, or a PR's on the Merge now sheet."""
+    return app.image(("badge", tone, mark, size), lambda p: draw(
+        ((p[f"{tone}-bg"], 24, ((12, 12, 12, 12),)), (p[f"{tone}-fg"], 2.6, inset(ICONS[mark], 0.5))), size, size))
+
+
+def scroller(app, parent):
+    """A frame that scrolls up and down in parent when it's the taller, by the wheel or by a scrollbar that's there
+    only then. Returns the canvas it scrolls in, which the caller colors, and the frame to fill."""
+    parent.columnconfigure(0, weight=1)
+    parent.rowconfigure(0, weight=1)
+    canvas = tk.Canvas(parent, highlightthickness=0, borderwidth=0, yscrollincrement=16)
+    canvas.grid(row=0, column=0, sticky="nsew")
+    inner = ttk.Frame(canvas)
+    held = canvas.create_window(0, 0, anchor="nw", window=inner)
+    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(held, width=event.width), add="+")
+    inner.bind("<Configure>", lambda event: canvas.configure(scrollregion=(0, 0, event.width, event.height)))
+    app.scroll(canvas)
+
+    def wheel(event):  # bound to the whole window, so act only with the pointer over this
+        try:
+            over = str(canvas.winfo_containing(event.x_root, event.y_root) or "")
+        except KeyError:  # a window Tkinter didn't make, like a menu
+            return
+        if over.startswith(str(canvas)) and inner.winfo_height() > canvas.winfo_height():
+            canvas.yview_scroll(-1 if event.num == 4 or event.delta > 0 else 1, "units")
+
+    x11 = canvas.tk.call("tk", "windowingsystem") == "x11"  # which sends the wheel as buttons 4 and 5
+    for gesture in ("<Button-4>", "<Button-5>") if x11 else ("<MouseWheel>",):
+        canvas.winfo_toplevel().bind(gesture, wheel, add="+")
+    return canvas, inner
+
+
+class Detail:
+    """The detail panel: a pane to the right of the table about the one selected PR, with the actions for it.
+
+    It's there only while exactly one PR is selected (the selection bar has the actions for several) and the
+    window is wide enough to keep the PR column beside it.
+    """
+
+    MARKS = {"ok": "tick", "warn": "bang", "bad": "x", "err": "x", "none": "minus"}  # a readiness check's badge
+    # What the timeline says when it knows no times. poll() looks nothing up for a held or conflicting PR.
+    BLANK = {"don't merge": "Not looked up while the pull request is held.",
+             "merge conflict": "Not looked up while the pull request conflicts.",
+             "?": "The lookup failed. prherd retries on the next poll."}
+
+    def __init__(self, app, width):
+        self.app, self.width = app, width
+        self.shown = None  # what fill() last showed, so a poll that changed nothing redraws nothing
+        self.branch_name = ""
+        frame = self.frame = ttk.Frame(app.body, width=width)
+        frame.pack_propagate(False)  # the saved width, not whatever its text asks for
+        # Lowest of the body's children, so anything walking the window's widgets meets these buttons before the
+        # selection bar's, which have the same labels: the tests find buttons by label, and mean the bar's.
+        frame.lower()
+        ttk.Frame(frame, style="Line.TFrame", width=1).pack(side="left", fill="y")
+        self.build_actions()  # packed first, so they keep the foot of the pane however short the window
+        holder = ttk.Frame(frame)
+        holder.pack(fill="both", expand=True)
+        self.canvas, inner = scroller(app, holder)
+        self.build(inner)
+        app.painters.append(lambda p: self.canvas.configure(background=p["win"]))
+        self.canvas.bind("<Configure>", self.wrap, add="+")
+        app.body.bind("<Configure>", lambda _: self.show(), add="+")  # the window was resized: is there room now?
+
+    def build(self, inner):
+        """All but the actions, top to bottom. It scrolls when the pane is too short for it."""
+        app = self.app
+        head = ttk.Frame(inner, padding=(20, 14, 15, 16))
+        head.pack(fill="x")
+        top = ttk.Frame(head)
+        top.pack(fill="x")
+        # Packed before the repo, so a long name is cut short and not these. Each keeps its name as its text,
+        # though only the icon shows.
+        for text, icon, command in (("Close", "x", lambda: app.tree.selection_set(())),
+                                    ("Open on GitHub", "external", lambda: app.open_in_browser(app.selected_prs()))):
+            ttk.Button(top, text=text, image=app.icon(icon, "text-3", 14), style="Icon.TButton", takefocus=False,
+                       command=command).pack(side="right")
+        self.repo = ttk.Label(top, style="Note.TLabel")
+        self.repo.pack(side="left")
+        self.number = ttk.Label(top, style="Mono.Note.TLabel")
+        self.number.pack(side="left", padx=(6, 0))
+        self.title = ttk.Label(head, style="Head.TLabel")
+        self.title.pack(anchor="w", pady=(6, 10))
+        branches = ttk.Frame(head)
+        branches.pack(fill="x")
+        self.branch = ttk.Label(branches, style="Chip.TLabel")
+        self.arrow = ttk.Label(branches, image=app.icon("arrow", "muted", 12))
+        self.base = ttk.Label(branches, style="Chip.TLabel")
+        ttk.Frame(inner, style="Rule.TFrame", height=1).pack(fill="x")
+
+        body = ttk.Frame(inner, padding=(20, 16, 20, 8))
+        body.pack(fill="x")
+        card = self.card = ttk.Frame(body, padding=(14, 12))
+        card.pack(fill="x")
+        self.card_icon = ttk.Label(card)
+        self.card_icon.grid(row=0, column=0, rowspan=2, sticky="n", padx=(0, 10), pady=(1, 0))
+        self.card_title = ttk.Label(card)
+        self.card_title.grid(row=0, column=1, sticky="w")
+        self.card_text = ttk.Label(card)
+        self.card_text.grid(row=1, column=1, sticky="w", pady=(2, 0))
+
+        ttk.Label(body, text="MERGE READINESS", style="Caps.TLabel").pack(anchor="w", pady=(18, 8))
+        self.checks = []
+        for _ in range(5):  # readiness() always has five
+            row = ttk.Frame(body)
+            row.pack(fill="x", pady=(0, 8))
+            mark, name, note = ttk.Label(row), ttk.Label(row), ttk.Label(row, style="Note.TLabel")
+            mark.grid(row=0, column=0, rowspan=2, sticky="n", padx=(0, 10))
+            name.grid(row=0, column=1, sticky="w")
+            note.grid(row=1, column=1, sticky="w")
+            self.checks.append((mark, name, note))
+
+        ttk.Label(body, text="TIMELINE", style="Caps.TLabel").pack(anchor="w", pady=(10, 10))
+        self.blank = ttk.Label(body, style="Note.TLabel")
+        self.story = ttk.Frame(body)
+        self.story.pack(fill="x")
+        self.events = []  # a row for each event, made as fill() first needs it
+
+    def build_actions(self):
+        app = self.app
+        foot = ttk.Frame(self.frame, padding=(20, 14, 20, 18))
+        foot.pack(side="bottom", fill="x")
+        ttk.Frame(self.frame, style="Rule.TFrame", height=1).pack(side="bottom", fill="x")
+        for column in (0, 1):
+            foot.columnconfigure(column, weight=1, uniform="half")
+        white = app.image("merge, white", lambda p: draw((("#FFFFFF", 2.2, ICONS["merge"]),), 15, 15))
+        self.merge = ttk.Button(foot, text="Merge now…", image=white, compound="left", style="Accent.TButton",
+                                command=app.merge_now)
+        self.merge.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        self.hold = ttk.Button(foot, text="Don't merge", style="Pane.TButton", command=self.toggle_hold)
+        others = (ttk.Button(foot, text="Request review", style="Pane.TButton", command=app.ask_codex), self.hold,
+                  ttk.Button(foot, text="Update branch", style="Pane.TButton", command=app.update_branches),
+                  ttk.Button(foot, text="Copy link", style="Pane.TButton",
+                             command=lambda: app.copy_links(app.selected_prs())))
+        for at, button in enumerate(others):
+            button.grid(row=1 + at // 2, column=at % 2, sticky="ew", padx=(0, 4) if at % 2 == 0 else (4, 0),
+                        pady=(0, 8) if at < 2 else 0)
+
+    def toggle_hold(self):
+        """Don't merge, or Allow merge for a held PR: by its verdict now, whatever the button last said."""
+        app = self.app
+        app.set_dont_merge(not all(app.verdicts.get(iid) == "don't merge" for iid in app.selected_prs()))
+
+    def measure(self):
+        """The pane's width: as it is now if it's showing, else as it last was. save() keeps this."""
+        if self.frame.winfo_ismapped():
+            self.width = min(max(self.frame.winfo_width(), DETAIL[0]), DETAIL[1])
+        return self.width
+
+    def show(self):
+        """Show the one selected PR as the app now knows it, or take the pane away."""
+        app, body = self.app, self.app.body
+        chosen = app.selected_prs()
+        iid = chosen[0] if len(chosen) == 1 else None
+        up = str(self.frame) in map(str, body.panes())
+        room = body.winfo_width() - app.sidebar.winfo_width() - self.measure()
+        if iid not in app.prs or room < app.tree.column("#0", "minwidth"):
+            if up:
+                body.forget(self.frame)
+            return
+        pr, v = app.prs[iid], app.verdicts[iid]
+        detail = app.details.get(iid.rsplit("#", 1)[0], {}).get(pr["number"])
+        state = (iid, pr, v, detail, app.live["merging"], time.strftime("%F"))  # the day: when() goes by it
+        if state != self.shown:
+            if not self.shown or self.shown[0] != iid:
+                self.canvas.yview_moveto(0)
+            self.fill(*state[:5])
+            self.shown = state
+        if not up:
+            self.frame.configure(width=self.width)
+            body.add(self.frame, weight=0)
+
+    def fill(self, iid, pr, v, detail, merging):
+        app, now = self.app, time.time()
+        self.repo.configure(text=short(iid.rsplit("#", 1)[0]))
+        self.number.configure(text=f"#{pr['number']}")
+        self.title.configure(text=pr["title"])
+        self.branch_name = pr.get("headRefName") or ""
+        self.base.configure(text=pr.get("baseRefName") or "")
+        for part in (self.branch, self.arrow, self.base):
+            part.pack_forget()
+        if self.branch_name:
+            self.branch.pack(side="left")
+            self.arrow.pack(side="left", padx=6)
+        if pr.get("baseRefName"):
+            self.base.pack(side="left")
+
+        tone, title, text = headline(pr, v, merging)
+        self.card.configure(style=f"{tone}.Card.TFrame")
+        self.card_icon.configure(image=app.icon(VERDICTS[v]["icon"], f"{tone}-fg", 18), style=f"{tone}.Card.TLabel")
+        self.card_title.configure(text=title, style=f"Title.{tone}.Card.TLabel")
+        self.card_text.configure(text=text, style=f"{tone}.Card.TLabel")
+        for (mark, name, note), (tone, title, text) in zip(self.checks, readiness(pr, v)):
+            mark.configure(image=badge(app, tone, self.MARKS[tone]))
+            name.configure(text=title)
+            note.configure(text=text)
+            note.grid() if text else note.grid_remove()
+
+        events = timeline(pr, v, detail)
+        while len(self.events) < len(events):
+            self.events.append(self.event_row())
+        for at, (row, dot, line, what, time_) in enumerate(self.events):
+            row.pack_forget()
+            line.pack_forget()
+            if at < len(events):
+                iso, tone, text = events[at]
+                color = f"{tone}-dot"
+                dot.configure(image=app.dot(color if color in app.palette else "open-dot", 9))
+                what.configure(text=text)
+                time_.configure(text=when(iso, now))
+                if at < len(events) - 1:  # joined to the next one
+                    line.pack(fill="y", expand=True, pady=(4, 0))
+                row.pack(fill="x")
+        self.blank.pack_forget()
+        if not events:
+            self.blank.configure(text=self.BLANK.get(v, "No times known for this head yet."))
+            self.blank.pack(anchor="w", pady=(0, 10), before=self.story)
+
+        self.hold.configure(text="Allow merge" if v == "don't merge" else "Don't merge")
+        self.merge.state(["!disabled" if app.mergeable_now() else "disabled"])
+        self.wrap()
+
+    def event_row(self):
+        """One timeline row: a dot on a rail, with a line down to the next row's, then what happened and when."""
+        row = ttk.Frame(self.story)
+        row.columnconfigure(1, weight=1)
+        rail = ttk.Frame(row)
+        rail.grid(row=0, column=0, sticky="ns", padx=(4, 15))  # the dot sits under the readiness badges' middles
+        dot = ttk.Label(rail)
+        dot.pack(pady=(4, 0))
+        line = ttk.Frame(rail, style="Line.TFrame", width=1)
+        what = ttk.Label(row)
+        what.grid(row=0, column=1, sticky="nw", pady=(0, 12))
+        time_ = ttk.Label(row, style="Mono.Note.TLabel")
+        time_.grid(row=0, column=2, sticky="ne", padx=(8, 0), pady=(1, 0))
+        return row, dot, line, what, time_
+
+    def wrap(self, _event=None):
+        """Wrap the text to the pane's width, and cut the branch short to fit on one line with its base."""
+        width = self.canvas.winfo_width() - 44  # less the gutters, and the 2px clam keeps around a label's text
+        if width < 100:  # not drawn yet
+            return
+        mono = fonts(self.app.root)["mono"]
+        self.title.configure(wraplength=width)
+        # Beside the branch: the arrow and the base, and both chips' padding.
+        self.branch.configure(text=elide(self.branch_name, mono, width - mono.measure(self.base.cget("text")) - 56))
+        for label in (self.card_title, self.card_text):
+            label.configure(wraplength=width - 60)  # inside the card's padding, past its icon
+        for _, name, note in self.checks:
+            name.configure(wraplength=width - 32)
+            note.configure(wraplength=width - 32)
+        for _, _, _, what, time_ in self.events:
+            what.configure(wraplength=width - 44 - mono.measure(time_.cget("text")))
+        self.blank.configure(wraplength=width)
+
+
+class MergeSheet:
+    """Merge now's question: a window over the main one listing what will merge and at which commit, what's skipped
+    and why, and how the mode treats branch protection.
+
+    Nothing waits on it: merge() is called if Merge is chosen, and otherwise it just closes. A merge can't be
+    undone, so Cancel has the focus, and Return and Escape cancel unless the focus was moved to Merge.
+    """
+
+    WIDTH = 432  # of what's inside its margins
+    ARMED = 0.4  # seconds before Merge answers, so a double click that opened the sheet can't also confirm it
+    NOTES = {"👀": "Codex still reviewing", "?": "Codex's verdict unknown", None: "no Codex go-ahead yet"}
+    SKIPS = {"don't merge": "marked don't merge", "merge conflict": "merge conflict"}
+
+    def __init__(self, app, chosen, mode, merge):
+        """chosen is {tree row: its PR} to merge with mode. The rest of the selection is listed as skipped."""
+        from tkinter import font
+        if app.sheet:
+            app.sheet.close()
+        self.app, self.merge, self.opened = app, merge, time.monotonic()
+        app.sheet = self
+        f, plain, one = fonts(app.root), font.nametofont("TkDefaultFont"), len(chosen) == 1
+        top = self.top = tk.Toplevel(app.root)
+        top.withdraw()  # until it's themed and in place
+        top.title("Merge now")
+        top.transient(app.root)
+        top.resizable(False, False)
+        page = ttk.Frame(top, padding=(24, 22, 24, 20))
+        page.pack(fill="both", expand=True)
+
+        head = ttk.Frame(page)
+        head.pack(fill="x")
+        tile = app.image("merge, tiled", lambda p: draw(
+            ((p["acc-bg"], 12, ((6, 6, 18, 6, 18, 18, 6, 18, 6, 6), (6, 12, 18, 12))),
+             (p["acc-fg"], 1.2, inset(ICONS["merge"], 0.5))), 40, 40))
+        ttk.Label(head, image=tile).pack(side="left", anchor="n", padx=(0, 14))
+        ttk.Label(head, text="Merge this pull request now?" if one else f"Merge {len(chosen)} pull requests now?",
+                  style="Head.TLabel").pack(anchor="w")
+        listed = [(iid, pr, None) for iid, pr in chosen.items()]
+        listed += [(iid, app.prs[iid], self.SKIPS.get(app.verdicts.get(iid), "can't be merged"))
+                   for iid in app.selected_prs() if iid not in chosen]
+        skipped = len(listed) - len(chosen)  # said up here too: in a long list they're below the fold
+        ttk.Label(head, style="Muted.TLabel", wraplength=self.WIDTH - 58, justify="left", text=(
+            "It squash-merges right away, without waiting for Codex. The merge is pinned to the commit shown, so "
+            "GitHub refuses it if someone has pushed since." if one else
+            "These squash-merge right away, without waiting for Codex. Each merge is pinned to the commit shown, so "
+            "GitHub refuses it if someone has pushed since.") + (
+            f" {skipped} more {'is' if skipped == 1 else 'are'} skipped, and listed last with why." if skipped else "")
+        ).pack(anchor="w", pady=(4, 0))
+
+        box = ttk.Frame(page, style="Line.TFrame", padding=1)  # the list's border
+        box.pack(fill="x", pady=(18, 0))
+        self.canvas, rows = scroller(app, box)
+        fold = 4.5  # the rows it shows before it scrolls: the half says there are more
+        for at, (iid, pr, why) in enumerate(listed):
+            if at:
+                ttk.Frame(rows, style="Rule.TFrame", height=1).pack(fill="x")
+            on = "Skip." if why else ""
+            row = ttk.Frame(rows, style=f"{on}TFrame", padding=(12, 9))
+            row.pack(fill="x")
+            row.columnconfigure(1, weight=1)
+            # A PR that merges has the commit it merges at on its right; a skipped one has its number there.
+            side = f"#{pr['number']}" if why else head7(pr)
+            # What's left for the title: less the row's padding, the badge, the side and a scrollbar if there is one.
+            room = self.WIDTH - 90 - f["mono"].measure(side) - (12 if len(listed) > fold else 0)
+            sub = f"Skipped — {why}" if why else " · ".join(filter(None, (
+                f"{short(iid.rsplit('#', 1)[0])} #{pr['number']}", self.NOTES.get(app.verdicts.get(iid)),
+                "draft" if pr.get("isDraft") else "")))
+            ttk.Label(row, image=badge(app, "bad" if why else "ok", "x" if why else "tick"),
+                      style=f"{on}TLabel").grid(row=0, column=0, rowspan=2, padx=(0, 10))
+            ttk.Label(row, text=elide(pr["title"], plain, room), style=f"{on}TLabel").grid(row=0, column=1, sticky="w")
+            ttk.Label(row, text=elide(sub, f["small"], room),
+                      style="Why.Skip.TLabel" if why else "Note.TLabel").grid(row=1, column=1, sticky="w")
+            ttk.Label(row, text=side, style="Mono.Skip.TLabel" if why else "Chip.TLabel").grid(
+                row=0, column=2, rowspan=2, padx=(10, 0))
+
+        admin = mode == "admin"
+        name = "Admin" if admin else next(label for label, value in MODES if value == app.live["mode"])
+        look = "Admin" if admin else "Paused"  # the banners' surfaces: Admin's is the warning one
+        note = ttk.Frame(page, style=f"{look}.TFrame", padding=(12, 10))
+        note.pack(fill="x", pady=(14, 0))
+        ttk.Label(note, image=app.icon("shield", "admin-fg" if admin else "text-3", 15),
+                  style=f"{look}.TLabel").pack(side="left", anchor="n", padx=(0, 10), pady=(1, 0))
+        ttk.Label(note, text=f"{name} mode", style=f"Bold.{look}.TLabel").pack(anchor="w")
+        ttk.Label(note, style=f"{look}.TLabel", wraplength=self.WIDTH - 58, justify="left", text=(
+            ("This merge bypasses branch protection." if one else "These merges bypass branch protection.") if admin
+            else ("Merge now doesn't queue: it merges like Force. " if name == "Queue" else "")
+            + "Branch protection still applies. Switch to Admin to bypass it.")).pack(anchor="w", pady=(1, 0))
+
+        buttons = ttk.Frame(page)
+        buttons.pack(fill="x", pady=(20, 0))
+        self.cancel_button = ttk.Button(buttons, text="Cancel", style="Pane.TButton", default="active",
+                                        command=self.close)
+        self.merge_button = ttk.Button(buttons, text="Merge now" if one else f"Merge {len(chosen)} now",
+                                       style="Accent.TButton", command=self.confirm)
+        self.merge_button.pack(side="right")
+        self.cancel_button.pack(side="right", padx=(0, 8))
+
+        app.painters.append(self.paint)
+        app.retheme(force=True)
+        top.update_idletasks()  # now the rows know their heights
+        tall = rows.winfo_children()[0].winfo_reqheight() + 1
+        self.canvas.configure(width=self.WIDTH - 2, height=min(rows.winfo_reqheight(), int(fold * tall)))
+        top.update_idletasks()
+        x = app.root.winfo_rootx() + (app.root.winfo_width() - top.winfo_reqwidth()) // 2
+        y = app.root.winfo_rooty() + (app.root.winfo_height() - top.winfo_reqheight()) // 2
+        top.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        top.deiconify()
+
+        top.protocol("WM_DELETE_WINDOW", self.close)
+        mac = ("<Command-period>", "<Command-w>") if sys.platform == "darwin" else ()
+        for key in ("<Escape>", *mac):
+            top.bind(key, lambda _: self.close())
+        for key in ("<Return>", "<KP_Enter>"):  # the default is Cancel: only Merge itself, focused, confirms
+            top.bind(key, lambda event: self.confirm() if event.widget is self.merge_button else self.close())
+        self.cancel_button.focus_set()
+
+        def grab(event=None):
+            if event is None or event.widget is top:
+                try:
+                    top.grab_set()  # the main window waits behind it
+                except tk.TclError:  # X11 can't grab a window that isn't on screen yet; <Map> comes back here
+                    pass
+
+        top.bind("<Map>", grab)
+        grab()
+
+    def paint(self, p):
+        self.canvas.configure(background=p["win"])
+
+    def confirm(self):
+        if time.monotonic() - self.opened >= self.ARMED:
+            self.close()
+            self.merge()
+
+    def close(self):
+        """Take the sheet away, merging nothing. Destroying it lets go of the grab."""
+        app = self.app
+        if app.sheet is not self:  # already closed
+            return
+        app.painters.remove(self.paint)
+        app.sheet = None
+        self.top.destroy()
+        app.tree.focus_set()
+
+
 class App:
     """The window: a toolbar and banners over a sidebar, the PR table and the activity log.
 
@@ -1072,6 +1537,8 @@ class App:
         self.failed = set()  # the repos whose latest poll couldn't
         self.prs = {}  # tree row -> its PR as of the last poll
         self.verdicts = {}  # tree row -> its verdict as poll() returned it; the cell shows a label, so guards read this
+        self.details = {}  # repo -> {PR number: its verdict_detail()} from that poll, for the detail panel's timeline
+        self.sheet = None  # the Merge now sheet, while it's open
         self.appearance = saved["appearance"]
         self.dark = None  # the palette in use; None until the first theme()
         self.busy = False
@@ -1108,6 +1575,7 @@ class App:
         self.content = ttk.Frame(self.main)  # holds the table; swap() shows another screen in its place
         self.content.pack(fill="both", expand=True)
         self.build_table()
+        self.detail = Detail(self, saved["detail"])
         self.build_menus()
         self.query.trace_add("write", lambda *_: self.render())
         root.bind("<Command-k>" if sys.platform == "darwin" else "<Control-k>", lambda _: self.search.focus_set())
@@ -1340,9 +1808,10 @@ class App:
 
         def fit(event):
             """Treeview hands spare width to the PR column, but with too little it lets the last columns run off
-            the edge. Leave out Head, then Age, while they won't fit beside a readable PR column."""
+            the edge. Leave out Head, then Age, while they won't fit beside a readable PR column: then, squeezed
+            further by the detail panel, Author, State and Codex, whose verdict is still the row's icon."""
             shown = list(tree["columns"])
-            for column in ("head", "age"):
+            for column in ("head", "age", "author", "state", "codex"):
                 if sum(widths[c] for c in ("#0", *shown)) > event.width:
                     shown.remove(column)
             if shown != list(tree["displaycolumns"]):
@@ -1589,7 +2058,9 @@ class App:
             self.add_entry.pack_forget()
 
     def show_selection(self, _event=None):
-        """Lay the selection bar over the heading while two or more PRs are selected, with the actions that apply."""
+        """Lay the selection bar over the heading while two or more PRs are selected, with the actions that apply.
+        One PR has the detail panel."""
+        self.detail.show()
         chosen = self.selected_prs()
         if len(chosen) < 2:
             return self.selection_bar.place_forget()
@@ -1678,6 +2149,7 @@ class App:
         """A merge control changed: tell the workers, show what it means, save it."""
         self.live.update(change)
         self.show_state()
+        self.detail.show()  # its status card says what Auto-merge does next
         self.save()
 
     def seconds(self):
@@ -1709,8 +2181,9 @@ class App:
         self.show(repo)
 
     def refresh(self, repo):
-        try:
-            self.events.put(("prs", repo, poll(repo, self.log, lambda: None)))  # show it now; merge on the next tick
+        details = {}
+        try:  # show it now; merge on the next tick
+            self.events.put(("prs", repo, poll(repo, self.log, lambda: None, details), details))
         except Exception as e:
             self.log(f"{repo}: poll crashed; retrying next interval ({e!r})")
 
@@ -1722,7 +2195,8 @@ class App:
         try:
             for repo in snapshot:
                 mode = lambda repo=repo: self.live["mode"] if self.live["merging"] and repo in self.repos else None
-                self.events.put(("prs", repo, poll(repo, self.log, mode)))
+                details = {}
+                self.events.put(("prs", repo, poll(repo, self.log, mode, details), details))
         except Exception as e:  # e.g. gh missing; log it rather than kill the thread silently
             self.log(f"poll crashed; retrying next interval ({e!r})")
         finally:
@@ -1773,12 +2247,12 @@ class App:
                 self.save()
                 changed = True
             elif kind == "prs" and rest[0] in self.repos:
-                repo, rows = rest
+                repo, rows, details = rest
                 if rows is None:  # couldn't list them: keep showing the last list that could
                     self.failed.add(repo)
                 else:
                     self.failed.discard(repo)
-                    self.rows[repo] = rows
+                    self.rows[repo], self.details[repo] = rows, details
                 changed = True
             elif kind == "done":
                 self.busy = False
@@ -1813,6 +2287,7 @@ class App:
             if repo in self.repos:
                 self.repos.remove(repo)
                 self.rows.pop(repo, None)
+                self.details.pop(repo, None)
                 self.failed.discard(repo)
         if self.only not in self.repos:
             self.only = None
@@ -1848,13 +2323,10 @@ class App:
     def merge_now(self):
         # The PRs as shown when asked, so a push after that makes GitHub refuse (--match-head-commit).
         chosen = {iid: self.prs[iid] for iid in self.mergeable_now()}
-        lines = [f"#{pr['number']} {pr['title']} ({VERDICTS[self.verdicts[iid]]['label']})"
-                 for iid, pr in chosen.items()]
         mode = "admin" if self.live["mode"] == "admin" else "force"
-        note = "This bypasses branch protection." if mode == "admin" else "Branch protection still applies."
-        if messagebox.askyesno("Merge now?", "Squash-merge without waiting for Codex?\n\n" + "\n".join(lines) + f"\n\n{note}",
-                               icon="warning", default="no", parent=self.root):
-            self.act_on(list(chosen), lambda repo, number: merge(repo, chosen[f"{repo}#{number}"], mode))
+        if chosen:  # the sheet asks; nothing merges unless its Merge button is chosen
+            MergeSheet(self, chosen, mode, lambda: self.act_on(
+                list(chosen), lambda repo, number: merge(repo, chosen[f"{repo}#{number}"], mode)))
 
     def open_in_browser(self, iids):
         for iid in iids:
@@ -1892,6 +2364,7 @@ class App:
         try:
             save_settings({"repos": self.repos, "mode": self.mode_var.get(), "interval": self.seconds(),
                            "merging": self.merging.get(), "geometry": self.root.geometry(),
+                           "detail": self.detail.measure(),
                            "appearance": self.appearance, "view": self.view, "sidebar": self.sidebar_width,
                            "log": self.log_open, "notify": self.notify})
         except OSError as e:

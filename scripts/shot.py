@@ -8,6 +8,8 @@ Runs prherd in this process with a throwaway settings file and the stand-in gh f
 PATH, so it never touches your settings or GitHub. After --wait seconds it runs each
 --do snippet, then captures the window with `screencapture` and exits.
 
+The capture is of the window itself, so it doesn't matter what else is on screen.
+
 A --do snippet is Python run on the Tk thread with these names: root, tk, ttk, app
 (root.app if the window sets it), tree (the first Treeview), widgets() (every widget
 under root), button(text) (a ttk.Button by its label), pump(seconds) (run the event
@@ -28,6 +30,31 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEMO_REPOS = ["github.com/octo-org/storefront", "github.com/octo-org/api", "github.com/octo-org/docs"]
+
+
+def window_number(title):
+    """This process's visible window with that title, as screencapture -l wants it. Capturing by window, not by
+    screen region, keeps other apps' windows and system prompts out of the picture."""
+    import ctypes
+    import ctypes.util
+    objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+    objc.objc_getClass.restype = objc.sel_registerName.restype = ctypes.c_void_p
+    objc.objc_getClass.argtypes = objc.sel_registerName.argtypes = [ctypes.c_char_p]
+
+    def msg(obj, sel, *args, restype=ctypes.c_void_p, argtypes=()):
+        send = ctypes.CFUNCTYPE(restype, ctypes.c_void_p, ctypes.c_void_p, *argtypes)(("objc_msgSend", objc))
+        return send(obj, objc.sel_registerName(sel.encode()), *args)
+
+    windows = msg(msg(objc.objc_getClass(b"NSApplication"), "sharedApplication"), "windows")
+    found = None
+    for i in range(msg(windows, "count", restype=ctypes.c_ulong)):
+        window = msg(windows, "objectAtIndex:", i, argtypes=(ctypes.c_ulong,))
+        name = (msg(msg(window, "title"), "UTF8String", restype=ctypes.c_char_p) or b"").decode()
+        if name == title and msg(window, "isVisible", restype=ctypes.c_bool):
+            found = msg(window, "windowNumber", restype=ctypes.c_long)
+    if found is None:
+        sys.exit(f"no window titled {title!r}")
+    return found
 
 
 def main():
@@ -85,15 +112,10 @@ def main():
             if not tops:
                 sys.exit("--top: no Toplevel is showing")
             target = tops[-1]
-        target.attributes("-topmost", True)
-        target.lift()
         pump(0.5)
-        title = 28  # macOS title bar, above the content area Tk reports
-        x, y = target.winfo_rootx(), target.winfo_rooty() - title
-        w, h = target.winfo_width(), target.winfo_height() + title
-        subprocess.run(["screencapture", "-x", "-R", f"{x},{y},{w},{h}", a.out], check=True)
+        subprocess.run(["screencapture", "-x", "-o", f"-l{window_number(target.title())}", a.out], check=True)
         subprocess.run(["sips", "-Z", "1400", a.out], capture_output=True)  # retina captures are 2x; keep them readable
-        print(f"wrote {a.out} ({w}x{h} points)")
+        print(f"wrote {a.out}", flush=True)
         os._exit(0)
 
     class Tk(tk.Tk):
