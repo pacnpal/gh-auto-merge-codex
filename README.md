@@ -92,15 +92,41 @@ The list groups each repo's open PRs under it. A newly added repo is shown right
 - **Right-click a PR** (or Control-click): Open in browser, Copy link, Merge now, Don't merge, Allow merge, Update branch, and Request Codex review. These act on every selected PR. Double-click a PR to open it in the browser.
 - **Select two or more PRs** and a bar over the heading offers Request Codex review, Don't merge, Allow merge, Update
   branch, and Merge now for all of them.
+- **Select one PR** and a panel about it opens on the right (see below).
+
+**Detail panel**
+
+Shown while exactly one PR is selected. Drag its edge to resize it, and close it with its ×, which clears the
+selection. From the top:
+
+- The PR's repo, number, title, and its branch and base. The arrow button opens it on GitHub.
+- A status card: what prherd will do with the PR, and why.
+- **Merge readiness**: Codex's go-ahead on the current head, conflicts with the base, the `do-not-merge` label,
+  draft or ready, and whether auto-merge is queued.
+- **Timeline**: when this head was pushed, when Codex started reviewing it and cleared it, and when auto-merge was
+  queued. Today's times are times of day. Older ones say how long ago. A held or conflicting PR has no times, because
+  prherd doesn't look them up.
+- **Merge now**, **Request review**, **Don't merge** or **Allow merge**, **Update branch**, and **Copy link**, for
+  that PR. Merge now is off for a PR showing Don't merge or Merge conflict.
+
+The list makes room for the panel by leaving out columns: after Head and Age it drops Author, State, then Codex,
+whose verdict is still the icon on each row. A window too narrow to keep the Pull request column beside the panel
+goes without it. The panel's width is saved with the window's other settings.
 
 **Request Codex review** posts an `@codex review` comment on each selected PR. **Don't merge** and **Allow merge**
 add or remove the `do-not-merge` label on each selected PR (see [Don't merge](#dont-merge)).
 
 **Merge now** asks first, then squash-merges the selected PRs without waiting for
-Codex, even with Auto-merge off. It's limited to the commit shown, so GitHub
-refuses it if someone has pushed since. It skips PRs showing Don't merge or
-Merge conflict, and it uses `--admin` only when the window's mode is Admin.
-Otherwise it behaves like Force, so branch protection still applies.
+Codex, even with Auto-merge off. It asks with a sheet over the window that lists:
+
+- each PR it will merge, with the commit it merges at. The merge is limited to that
+  commit, so GitHub refuses it if someone has pushed since.
+- each selected PR it skips, with why: those showing Don't merge or Merge conflict.
+- how the mode treats branch protection. It uses `--admin` only when the window's
+  mode is Admin. Otherwise it behaves like Force, so branch protection still applies.
+
+A merge can't be undone, so **Cancel** is the default. Return and Escape cancel.
+To merge, click the Merge button, or Tab to it and press Return or Space.
 
 **Update branch** merges the base branch into the PR. That's a new commit, so
 Codex's go-ahead no longer counts until it reviews again.
