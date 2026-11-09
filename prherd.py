@@ -1739,6 +1739,7 @@ class App:
         mode = saved["mode"] if mode is None else mode
         self.interval = interval or saved["interval"]  # the seconds between polls, as last read from the spinbox
         self.root = root = tk.Tk()
+        self.x11 = root.tk.call("tk", "windowingsystem") == "x11"
         root.app = self  # the way in for anything that's handed only the window
         root.title("prherd")
         if os.path.exists(ICON):  # run from source, Tk would show Python's icon in the Dock
@@ -1867,8 +1868,19 @@ class App:
             if action:  # packed before the text, so a narrow window cuts the text short and not the button
                 ttk.Button(row, text=action[0], style="Link.TButton", command=action[1]).pack(side="right")
             ttk.Label(row, image=icon, style=f"{style}.TLabel").pack(side="left", padx=(0, 10))
-            ttk.Label(row, text=lead, style=f"Bold.{style}.TLabel").pack(side="left")
-            ttk.Label(row, text=text, style=f"{style}.TLabel").pack(side="left")
+            bold = ttk.Label(row, text=lead, style=f"Bold.{style}.TLabel")
+            bold.pack(side="left")
+            rest = ttk.Label(row, text=text, style=f"{style}.TLabel")
+            rest.pack(side="left", fill="x", expand=True)
+
+            def fit(_event):  # wrap rather than run under the button when the window is narrow
+                width = max(rest.winfo_width(), 80)
+                if rest.cget("wraplength") != width:  # only on a change: setting it resizes the row, and calls this
+                    rest.configure(wraplength=width)
+                wrapped = rest.winfo_reqheight() > bold.winfo_reqheight() + 4
+                bold.pack_configure(anchor="n" if wrapped else "center")  # level with the first line
+
+            rest.bind("<Configure>", fit)
             return frame
 
         def resume():
@@ -2369,6 +2381,8 @@ class App:
     def show_log(self, at, msg):
         box, kind = self.logbox, kind_of(msg)
         subject, text = split_log(msg)
+        if self.x11:  # Tk on X11 can't draw emoji, and shows a box where poll()'s 👍 and 👀 would be
+            text = text.replace("👍", "thumbs-up").replace("👀", "eyes")
         follow = box.yview()[0] <= 0  # keep the newest in view, unless the reader has scrolled down to older ones
         box.configure(state="normal")
         box.insert("1.0", f"{at}  ", ("line", "time"), f" {kind} ", ("line", kind),  # the newest goes on top
