@@ -216,8 +216,9 @@ class Test(unittest.TestCase):
         self.assertEqual(ca.row_values(dict(pr, isDraft=True, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "Draft")
         self.assertEqual(ca.row_values(dict(pr, author=None), "👍")[1], "")  # a deleted account
 
-    def window(self, fake, check, interval=3600):
-        """Run the window against fake gh; check(root, tree, buttons, wait_for) drives it, then closes it."""
+    def window(self, fake, check, interval=3600, mode=None, config=None):
+        """Run the window against fake gh; check(root, tree, buttons, wait_for) drives it, then closes it. With
+        config, a settings file to start from; mode and interval are the CLI's flags."""
         try:
             import tkinter as tk
             from tkinter import ttk
@@ -251,10 +252,10 @@ class Test(unittest.TestCase):
         # Stand-ins for the two things a window would otherwise do to this machine: post notifications, and put
         # an item in the menu bar.
         self.notified, self.menubar = mock.Mock(return_value=True), mock.Mock()
-        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"), \
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", config or f"{d}/s.json"), \
                 mock.patch.object(ca, "gh", fake), mock.patch.object(tk.Misc, "mainloop", drive), \
                 mock.patch.object(ca, "notify", self.notified), mock.patch.object(ca, "MenuBar", self.menubar):
-            ca.gui(["octo/direct-repo"], None, interval)
+            ca.gui(["octo/direct-repo"], mode, interval)
 
     def menu_for(self, root, tree):
         """Right-click the PR row; return the menu that opened and its entries' states by label."""
@@ -1409,6 +1410,54 @@ class Test(unittest.TestCase):
                 pathlib.Path(ca.CONFIG).write_text(json.dumps({"detail": bad}))
                 self.assertEqual(ca.load_settings()["detail"], 320, bad)
 
+    def test_cli_flags_last_for_this_run_only(self):
+        # --admin once must not leave every later launch bypassing branch protection.
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            app = root.app
+            self.assertEqual((app.live["mode"], app.interval), ("admin", 7))
+            app.save()
+            self.assertEqual({k: self.saved()[k] for k in ("mode", "interval")}, {"mode": "", "interval": 300})
+            app.mode_var.set("force")  # chosen in the window: that one is saved
+            app.control(mode="force")
+            app.interval_var.set(90)
+            app.retime()
+            self.assertEqual({k: self.saved()[k] for k in ("mode", "interval")}, {"mode": "force", "interval": 90})
+
+        with tempfile.TemporaryDirectory() as d:
+            config = f"{d}/s.json"
+            pathlib.Path(config).write_text(json.dumps({"mode": "", "interval": 300}))
+            self.window(FakeGh(reactions=THUMBS), check, mode="admin", interval=7, config=config)
+
+    def test_interval_field_survives_what_can_be_typed(self):
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            app = root.app
+            for typed, seconds in (("inf", 3600), ("1e400", 3600), ("99999999999999999999", ca.MAX_INTERVAL),
+                                   ("abc", 3600), ("0", 1)):
+                app.interval = 3600
+                app.interval_var.set(typed)
+                self.assertEqual(app.seconds(), seconds, typed)
+                app.retime()  # neither raises nor stops the polling
+                app.schedule()
+                self.assertIn(app.timer, root.tk.call("after", "info"))
+                app.save()
+                self.assertLessEqual(self.saved()["interval"], ca.MAX_INTERVAL)
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_worker_failures_are_logged(self):
+        # gh gone after launch: a button's action fails in its thread, and says so rather than dying quietly.
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            app = root.app
+            tree.selection_set(ROW)
+            with mock.patch.object(ca, "gh", mock.Mock(side_effect=FileNotFoundError("no gh"))):
+                app.ask_codex()
+                self.logged(root, "failed: FileNotFoundError('no gh')")
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
     def test_args(self):
         self.assertEqual(ca.parse(["--admin", "--force", "a/b"]).mode, "force")
         self.assertEqual((ca.parse([]).mode, ca.parse([]).interval), (None, None))  # saved settings apply
@@ -1433,10 +1482,24 @@ class Test(unittest.TestCase):
 
     def test_bad_settings_are_not_trusted_or_overwritten(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
-            pathlib.Path(ca.CONFIG).write_text('{"mode": "foo", "interval": 0, "repos": [1, "a/b"], "merging": "no", '
-                                               '"appearance": "blue"}')
+            # Repos must be resolved ones: "" or a "#" would make a row the window takes for a PR, or no row at all.
+            pathlib.Path(ca.CONFIG).write_text(json.dumps({
+                "mode": "foo", "interval": 0, "repos": [1, "h/a/b", "a/b", "h/a/b#1", ""], "appearance": "blue"}))
             s = ca.load_settings()
-            self.assertEqual((s["mode"], s["interval"], s["repos"]), ("", 60, ["a/b"]))  # "foo" would force-merge
+            self.assertEqual((s["mode"], s["interval"], s["repos"]), ("", 60, ["h/a/b"]))  # "foo" would force-merge
+            for bad in ("no", "false", 0, None, 1):  # only true, or nothing saved, means merge
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"merging": bad}))
+                self.assertIs(ca.load_settings()["merging"], False, bad)
+            pathlib.Path(ca.CONFIG).write_text("{}")
+            self.assertIs(ca.load_settings()["merging"], True)
+            for bad in (10 ** 17, 86401, -5):  # past what Tk's timer can count: every launch would crash
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"interval": bad}))
+                self.assertEqual(ca.load_settings()["interval"], 60, bad)
+            for bad in ("garbage", "800x600", 3):  # Tk raises on a geometry it can't read
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"geometry": bad}))
+                self.assertIsNone(ca.load_settings()["geometry"], bad)
+            pathlib.Path(ca.CONFIG).write_text(json.dumps({"geometry": "900x600+-1500+40"}))  # a display to the left
+            self.assertEqual(ca.load_settings()["geometry"], "900x600+-1500+40")
             self.assertEqual(s["appearance"], "system")
             for bad in ("Dark", 1, None, ["dark"]):
                 pathlib.Path(ca.CONFIG).write_text(json.dumps({"appearance": bad}))
@@ -1448,8 +1511,8 @@ class Test(unittest.TestCase):
 
     def test_settings_fall_back_to_pre_rename_file(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/prherd.json"):
-            pathlib.Path(f"{d}/codex-automerge.json").write_text('{"repos": ["a/b"]}')
-            self.assertEqual(ca.load_settings()["repos"], ["a/b"])
+            pathlib.Path(f"{d}/codex-automerge.json").write_text('{"repos": ["h/a/b"]}')
+            self.assertEqual(ca.load_settings()["repos"], ["h/a/b"])
             self.assertFalse(pathlib.Path(f"{d}/codex-automerge.json").exists())  # moved, can't resurface
             pathlib.Path(ca.CONFIG).unlink()
             self.assertEqual(ca.load_settings()["repos"], [])
@@ -1610,10 +1673,10 @@ class Test(unittest.TestCase):
             ca.save_settings({"notify": dict(on, merged=False, cleared=False)})
             self.assertEqual(ca.load_settings()["notify"], dict(on, merged=False, cleared=False))
             for bad in ("all", None, 1, ["merged"], {"merged": "no"}, {"conflict": 0, "other": False}):
-                pathlib.Path(ca.CONFIG).write_text(json.dumps({"mode": "admin", "repos": ["a/b"], "notify": bad}))
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"mode": "admin", "repos": ["h/a/b"], "notify": bad}))
                 s = ca.load_settings()
                 self.assertEqual(s["notify"], on, bad)
-                self.assertEqual((s["mode"], s["repos"]), ("admin", ["a/b"]), bad)  # the rest is kept
+                self.assertEqual((s["mode"], s["repos"]), ("admin", ["h/a/b"]), bad)  # the rest is kept
 
     def test_can_merge(self):
         def ask(code, out):

@@ -586,6 +586,10 @@ def login_item(enable):
     return "opens at login" if enable else "no longer opens at login"
 
 
+REPO_FORM = r"[^\s#/]+(/[^\s#/]+){2}"  # a resolved repo, as resolve() gives it
+MAX_INTERVAL = 86400  # a day: the spinbox's top, and well short of what Tk's timers can count to
+
+
 def load_settings():
     """Saved window settings, each checked: a bad mode would otherwise merge() as force."""
     old = os.path.join(os.path.dirname(CONFIG), "codex-automerge.json")  # the pre-rename file
@@ -602,12 +606,14 @@ def load_settings():
         sys.exit(f"can't read saved settings {CONFIG}: {e}; fix or delete it")
     repos, interval, geometry = s.get("repos"), s.get("interval"), s.get("geometry")
     view, sidebar = s.get("view"), s.get("sidebar")
+    text = lambda value, pattern: isinstance(value, str) and re.fullmatch(pattern, value)
     return {
-        "repos": [r for r in repos if isinstance(r, str)] if isinstance(repos, list) else [],
+        # Saved repos are resolved: host/owner/repo. Anything else would be a row the window can't tell from a PR's.
+        "repos": [r for r in repos if text(r, REPO_FORM)] if isinstance(repos, list) else [],
         "mode": s.get("mode") if s.get("mode") in [v for _, v in MODES] else "",
-        "interval": interval if type(interval) is int and interval > 0 else 60,
-        "merging": s.get("merging") is not False,
-        "geometry": geometry if isinstance(geometry, str) else None,
+        "interval": interval if type(interval) is int and 0 < interval <= MAX_INTERVAL else 60,
+        "merging": s.get("merging", True) is True,  # merging is the one to be sure of: "false" or 0 isn't a yes
+        "geometry": geometry if text(geometry, r"\d+x\d+([+-]-?\d+){2}") else None,
         "detail": s["detail"] if type(s.get("detail")) is int and DETAIL[0] <= s["detail"] <= DETAIL[1] else 320,
         "appearance": s.get("appearance") if s.get("appearance") in APPEARANCES else "system",
         "view": view if isinstance(view, str) and view in VIEWS else "all",
@@ -1387,7 +1393,7 @@ class MergeSheet:
     """
 
     WIDTH = 432  # of what's inside its margins
-    ARMED = 0.4  # seconds before Merge answers, so a double click that opened the sheet can't also confirm it
+    ARMED = 0.6  # seconds before Merge answers, so a double click that opened the sheet can't also confirm it
     NOTES = {"👀": "Codex still reviewing", "?": "Codex's verdict unknown", None: "no Codex go-ahead yet"}
     SKIPS = {"don't merge": "marked don't merge", "merge conflict": "merge conflict"}
 
@@ -1483,8 +1489,9 @@ class MergeSheet:
         top.update_idletasks()
         x = app.root.winfo_rootx() + (app.root.winfo_width() - top.winfo_reqwidth()) // 2
         y = app.root.winfo_rooty() + (app.root.winfo_height() - top.winfo_reqheight()) // 2
-        top.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        top.geometry(f"+{x}+{y}")  # negative on a display left of or above the main one, and that's right
         top.deiconify()
+        self.opened = time.monotonic()  # armed from when it shows, however long it took to build
 
         top.protocol("WM_DELETE_WINDOW", self.close)
         mac = ("<Command-period>", "<Command-w>") if sys.platform == "darwin" else ()
@@ -1716,8 +1723,9 @@ class App:
     Worker threads never touch Tk. They post to self.events, which drain() empties on the Tk thread.
     """
 
-    # Right-click is Button-3, except on macOS Tk 8.6, which calls it Button-2.
-    MENU_GESTURES = ("<Button-2>", "<Button-3>", "<Control-Button-1>")
+    # Right-click is Button-3, except on macOS Tk 8.6, which calls it Button-2. Control-click is a right-click only on
+    # macOS: on Windows and Linux it adds a row to the selection.
+    MENU_GESTURES = ("<Button-2>", "<Button-3>", *(("<Control-Button-1>",) if sys.platform == "darwin" else ()))
 
     def __init__(self, targets, mode, interval):
         global tk, ttk, messagebox  # imported here, not at the top: --headless runs where Tk isn't installed
@@ -1725,7 +1733,10 @@ class App:
         from tkinter import messagebox, ttk
 
         saved = load_settings()
-        mode = saved["mode"] if mode is None else mode  # a CLI flag wins for this run
+        # A CLI flag wins for this run only: until its control is changed, the saved value is what's saved again.
+        # Else one `--admin` would make every later launch bypass branch protection.
+        self.flagged = {key: saved[key] for key, flag in (("mode", mode), ("interval", interval)) if flag is not None}
+        mode = saved["mode"] if mode is None else mode
         self.interval = interval or saved["interval"]  # the seconds between polls, as last read from the spinbox
         self.root = root = tk.Tk()
         root.app = self  # the way in for anything that's handed only the window
@@ -1834,7 +1845,7 @@ class App:
         every = ttk.Frame(bar, style="Bar.TFrame")
         every.grid(row=0, column=3, padx=(0, 14))
         ttk.Label(every, text="Every", style="Bar.TLabel").pack(side="left", padx=(0, 6))
-        spin = ttk.Spinbox(every, from_=1, to=86400, width=5, textvariable=self.interval_var, command=self.retime)
+        spin = ttk.Spinbox(every, from_=1, to=MAX_INTERVAL, width=5, textvariable=self.interval_var, command=self.retime)
         spin.pack(side="left")
         for event in ("<Return>", "<FocusOut>"):  # typed in, not clicked up or down
             spin.bind(event, self.retime)
@@ -2413,19 +2424,22 @@ class App:
     def control(self, **change):
         """A merge control changed: tell the workers, show what it means, save it."""
         self.live.update(change)
+        if "mode" in change:  # chosen now, so it's what's saved
+            self.flagged.pop("mode", None)
         self.show_state()
         self.detail.show()  # its status card says what Auto-merge does next
         self.save()
 
     def seconds(self):
-        try:
-            return max(1, self.interval_var.get())
-        except tk.TclError:  # spinbox holds non-numeric text
+        try:  # IntVar.get() turns "1e400" into OverflowError and "inf" into ValueError, not TclError
+            return min(max(1, int(self.interval_var.get())), MAX_INTERVAL)
+        except (tk.TclError, ValueError, OverflowError):  # the spinbox holds what isn't a number
             return self.interval
 
     def retime(self, _event=None):
         """The interval changed: count down from it afresh. Not on every key, or typing 120 would poll after 1."""
         if self.seconds() != self.interval:
+            self.flagged.pop("interval", None)
             self.schedule()
             self.save()
 
@@ -2435,7 +2449,13 @@ class App:
         self.events.put(("log", time.strftime("%T"), msg))
 
     def bg(self, fn, *args):
-        threading.Thread(target=fn, args=args, daemon=True).start()
+        def run():
+            try:
+                fn(*args)
+            except Exception as e:  # e.g. gh gone: say so, rather than the thread dying quietly
+                self.log(f"failed: {e!r}")
+
+        threading.Thread(target=run, daemon=True).start()
 
     def add_repo(self, target):
         try:
@@ -2708,7 +2728,7 @@ class App:
         if self.sidebar.winfo_width() > 1:  # it's 1 until the window is drawn
             self.sidebar_width = min(max(self.sidebar.winfo_width(), SIDEBAR[0]), SIDEBAR[1])
         try:
-            save_settings({"repos": self.repos, "mode": self.mode_var.get(), "interval": self.seconds(),
+            save_settings({"repos": self.repos, "mode": self.mode_var.get(), "interval": self.seconds(), **self.flagged,
                            "merging": self.merging.get(), "geometry": self.root.geometry(),
                            "detail": self.detail.measure(),
                            "appearance": self.appearance, "view": self.view, "sidebar": self.sidebar_width,
@@ -2992,7 +3012,7 @@ class Settings:
         row = self.row(polling, "Poll every", "How often prherd lists open pull requests on each repo.")
         every = self.right(row, ttk.Frame(row, style="Group.TFrame"))
         # The toolbar's own variable and handlers, so the two fields are one setting.
-        spin = ttk.Spinbox(every, from_=1, to=86400, width=6, textvariable=app.interval_var, command=app.retime,
+        spin = ttk.Spinbox(every, from_=1, to=MAX_INTERVAL, width=6, textvariable=app.interval_var, command=app.retime,
                            justify="right")
         spin.pack(side="left")
         for event in ("<Return>", "<FocusOut>"):
@@ -3077,6 +3097,7 @@ class Settings:
         self.repo_list = ttk.Frame(card, style="Group.TFrame")
         self.repo_list.pack(fill="x")
         self.repo_rows = {}  # repo -> its row; show_repos() keeps them in step with the App's repos
+        self.trashed = 0  # when trash() last removed a repo, by time.monotonic()
         self.asked, self.unknown = set(), set()  # the repos whose merge rights gh was asked for, and couldn't say
         form = ttk.Frame(card, style="Group.TFrame", padding=10)
         form.pack(fill="x")
@@ -3121,6 +3142,13 @@ class Settings:
                 self.asked.add(repo)
                 app.bg(lambda repo=repo: app.events.put(("tell", "rights", repo, can_merge(repo))))
 
+    def trash(self, repo):
+        """Remove repo. Not within a moment of the last removal: the rows close up, so a double click's second click
+        would land on the next repo's button and take that too."""
+        if time.monotonic() - self.trashed >= 0.6:
+            self.trashed = time.monotonic()
+            self.app.remove([repo])
+
     def repo_row(self, repo):
         app = self.app
         row = ttk.Frame(self.repo_list, style="Group.TFrame")
@@ -3139,7 +3167,7 @@ class Settings:
         row.badge = ttk.Label(line, compound="left")
         row.badge.grid(row=0, column=2, rowspan=2, padx=(12, 6))
         ttk.Button(line, image=app.icon("trash", "muted", 14), style="Group.TButton", takefocus=False,
-                   command=lambda: app.remove([repo])).grid(row=0, column=3, rowspan=2)
+                   command=lambda: self.trash(repo)).grid(row=0, column=3, rowspan=2)
         return row
 
     def build_merging(self, pane):
