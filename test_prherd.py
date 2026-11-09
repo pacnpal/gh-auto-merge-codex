@@ -246,8 +246,12 @@ class Test(unittest.TestCase):
                 root.after_cancel(pending)
             root.destroy()
 
+        # Stand-ins for the two things a window would otherwise do to this machine: post notifications, and put
+        # an item in the menu bar.
+        self.notified, self.menubar = mock.Mock(return_value=True), mock.Mock()
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"), \
-                mock.patch.object(ca, "gh", fake), mock.patch.object(tk.Misc, "mainloop", drive):
+                mock.patch.object(ca, "gh", fake), mock.patch.object(tk.Misc, "mainloop", drive), \
+                mock.patch.object(ca, "notify", self.notified), mock.patch.object(ca, "MenuBar", self.menubar):
             ca.gui(["octo/direct-repo"], None, interval)
 
     def menu_for(self, root, tree):
@@ -321,6 +325,263 @@ class Test(unittest.TestCase):
 
         self.window(fake, check)
         self.assertEqual(fake.merges(), [])  # cancelled
+
+    def test_merged_today_counts_per_repo_and_starts_over_at_midnight(self):
+        other = "github.com/octo/other"
+        tally = ca.merged_today(("", {}), "2026-11-09")  # just asked what day it is
+        self.assertEqual(tally, ("2026-11-09", {}))
+        for repo in (REPO, other, REPO):
+            tally = ca.merged_today(tally, "2026-11-09", repo)
+        self.assertEqual(tally, ("2026-11-09", {REPO: 2, other: 1}))
+        self.assertEqual(ca.merged_today(tally, "2026-11-09"), tally)
+        self.assertEqual(ca.merged_today(tally, "2026-11-10"), ("2026-11-10", {}))  # past midnight
+        self.assertEqual(ca.merged_today(tally, "2026-11-10", other), ("2026-11-10", {other: 1}))
+        self.assertEqual(tally, ("2026-11-09", {REPO: 2, other: 1}))  # a new tally each time: the old one is as it was
+
+    def test_notify_and_menubar_settings_round_trip_and_fall_back(self):
+        on = dict.fromkeys(ca.NOTIFY_KINDS, True)
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            extras = lambda: {key: ca.load_settings()[key] for key in ("notify", "menubar")}
+            self.assertEqual(extras(), {"notify": on, "menubar": True})
+            ca.save_settings({"notify": dict(on, merged=False), "menubar": False})
+            self.assertEqual(extras(), {"notify": dict(on, merged=False), "menubar": False})
+            for bad in ({"menubar": "no"}, {"menubar": 0}, {"menubar": None}, {"menubar": []}, {"notify": "none"},
+                        {"notify": ["merged"]}, {"notify": {"merged": "no", "other": False}}):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps(bad))
+                self.assertEqual(extras(), {"notify": on, "menubar": True}, bad)
+
+    def leaving_gh(self, **kwargs):
+        """A FakeGh whose PRs numbered in its .merged have left the open list, and are merged when asked about."""
+        class Gh(FakeGh):
+            merged = ()
+
+            def __call__(self, *args, cwd=None):
+                r = super().__call__(*args, cwd=cwd)
+                if not r.returncode and args[:2] == ("pr", "list"):
+                    r.stdout = json.dumps([pr for pr in json.loads(r.stdout) if pr["number"] not in self.merged])
+                elif not r.returncode and args[:2] == ("pr", "view") and "state" in args[-1]:
+                    number = int(args[2])
+                    r.stdout = json.dumps({"state": "MERGED" if number in self.merged else "CLOSED",
+                                           "title": f"title {number}", "number": number})
+                return r
+
+        return Gh(**kwargs)
+
+    def logged(self, root, text):
+        """Pump the window until its activity log has text."""
+        self.settle(root, lambda: text in root.app.logbox.get("1.0", "end"), f"the log never said {text!r}")
+
+    def test_window_notifies_of_changes_in_the_kinds_switched_on(self):
+        conflicting = {"number": 8, "mergeable": "CONFLICTING"}
+        fake = self.leaving_gh(reactions=THUMBS, more=[conflicting])
+        asked = lambda: [args for args, _ in fake.calls if args[:2] == ("pr", "view") and "state" in args[-1]]
+
+        def check(root, tree, buttons, wait_for):
+            app, sent = root.app, self.notified
+            wait_for("Thumbs up")
+            app.refresh(REPO)  # here, not on a worker, so it's done before the next line
+            sent.assert_not_called()  # launch notifies nothing, whatever the PRs are up to; nor does no change
+            self.assertEqual({n: v for n, (_, v) in app.seen[REPO].items()}, {7: "👍", 8: "merge conflict"})
+
+            fake.reactions, fake.more = (), [{"number": 8}]
+            app.refresh(REPO)
+            sent.assert_not_called()  # no longer cleared, no longer conflicting: neither is news
+            app.notify["conflict"] = False
+            fake.reactions, fake.more = THUMBS, [conflicting]
+            app.refresh(REPO)
+            self.assertEqual(sent.call_args_list, [mock.call("Codex cleared #7", "octo/direct-repo · t")])
+            self.logged(root, "octo/direct-repo notified: Codex cleared #7 · t")
+            self.assertNotIn("Merge conflict on #8", app.logbox.get("1.0", "end"))  # switched off: not sent, not logged
+
+            # A listing that fails isn't every PR leaving. Nor is it the list to compare the next one with.
+            fake.fail = ("pr list",)
+            app.refresh(REPO)
+            self.assertEqual((sent.call_count, asked(), sorted(app.seen[REPO])), (1, [], [7, 8]))
+            fake.fail, fake.merged = (), (8,)
+            sent.return_value = False  # this one can't be posted
+            app.refresh(REPO)
+            self.assertEqual(sent.call_args_list[1:], [mock.call("Merged #8", "octo/direct-repo · title 8")])
+            self.assertEqual([args[2] for args in asked()], ["8"])
+            self.logged(root, "octo/direct-repo can't notify: Merged #8 · title 8")
+
+            # A poll that began before the one last compared is too old to compare: #8 isn't back, to merge again.
+            fake.merged = ()
+            app.notice(REPO, 0, ca.poll(REPO, lambda msg: None, lambda: None))
+            self.assertEqual(sorted(app.seen[REPO]), [7])
+            fake.merged = (8,)
+            app.refresh(REPO)
+            self.assertEqual(sent.call_count, 2)
+
+        self.window(fake, check)
+
+    def test_window_counts_merges_today_whether_or_not_they_are_announced(self):
+        fake = self.leaving_gh(reactions=THUMBS, more=[{"number": 8}, {"number": 9, "mergeable": "CONFLICTING"}])
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            chips = lambda: {key: str(value.cget("text")) for key, (_, value) in app.chips.items()}
+            wait_for("Thumbs up")
+            app.refresh(REPO)
+            self.settle(root, lambda: chips() == {"ready": "2", "reviewing": "0", "attention": "1", "merged": "0"})
+            app.notify["merged"] = False
+            fake.merged = (8,)
+            with mock.patch.object(ca.App, "today", return_value="2026-11-09"):
+                app.refresh(REPO)
+                self.settle(root, lambda: chips() == {"ready": "1", "reviewing": "0", "attention": "1", "merged": "1"})
+                self.notified.assert_not_called()
+                fake.merged = (8, 9)
+                app.refresh(REPO)
+                self.settle(root, lambda: chips()["merged"] == "2")
+                self.assertEqual(app.merged, ("2026-11-09", {REPO: 2}))
+                app.pick_repo(REPO)  # the chips count what the sidebar is showing: this repo, as it happens
+                self.assertEqual(chips(), {"ready": "1", "reviewing": "0", "attention": "0", "merged": "2"})
+                app.pick_repo(REPO)
+            with mock.patch.object(ca.App, "today", return_value="2026-11-10"):  # midnight has passed
+                app.render()
+                self.assertEqual((chips()["merged"], app.merged), ("0", ("2026-11-10", {})))
+                fake.merged = (7, 8, 9)
+                app.refresh(REPO)
+                self.settle(root, lambda: chips()["merged"] == "1")
+
+        self.window(fake, check)
+
+    def test_stat_chips_make_way_for_the_heading(self):
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            root.update()
+            self.assertEqual(app.fitted, ["ready", "reviewing", "attention", "merged"])
+            self.assertTrue(all(chip.winfo_ismapped() for chip, _ in app.chips.values()))
+            root.geometry("780x480")
+            self.settle(root, lambda: app.heading.winfo_width() < 600)
+            self.settle(root, lambda: app.fitted != ["ready", "reviewing", "attention", "merged"])
+            self.assertEqual(app.fitted[-1:], ["merged"])  # the last to go
+            self.assertFalse(app.chips["reviewing"][0].winfo_ismapped())  # the first
+            app.query.set("a search long enough that the line under the heading needs the whole of its width")
+            root.update()
+            self.assertEqual(app.fitted, [])
+            self.assertFalse(app.stats.winfo_ismapped())
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_menu_bar_words(self):
+        self.assertEqual(ca.MenuBar.words(0, 0, 0), ("", "prherd: 0 ready to merge, 0 need attention, 0 merged today",
+                                                     ["0 ready to merge", "0 need attention", "0 merged today"]))
+        self.assertEqual(ca.MenuBar.words(3, 1, 12)[::2],
+                         ("3  ⚠︎ 1", ["3 ready to merge", "1 needs attention", "12 merged today"]))
+        self.assertEqual([ca.MenuBar.words(*counts)[0] for counts in ((2, 0, 5), (0, 2, 0))], ["2", "⚠︎ 2"])
+
+    def test_menu_bar_item_is_only_on_macos_and_only_an_extra(self):
+        def check(root, tree, buttons, wait_for):
+            app, made = root.app, self.menubar
+            said = lambda: app.logbox.get("1.0", "end")
+            saved = lambda: json.loads(pathlib.Path(ca.CONFIG).read_text())["menubar"]
+            wait_for("Thumbs up")
+            self.assertEqual(made.call_count, ca.sys.platform == "darwin")  # at launch: the stand-in, if anything
+            made.reset_mock()
+            for platform in ("linux", "win32"):
+                with mock.patch.object(ca.sys, "platform", platform):
+                    app.set_menubar(True)
+            made.assert_not_called()
+            self.assertIsNone(app.status)
+
+            with mock.patch.object(ca.sys, "platform", "darwin"):
+                made.side_effect = OSError("no libobjc")  # it can't be made: the window goes without
+                app.set_menubar(True)
+                self.assertIsNone(app.status)
+                self.logged(root, "no menu bar item: OSError('no libobjc')")
+                app.refresh(REPO)
+                app.render()
+                self.assertEqual(tree.set(ROW, "codex"), "Thumbs up")
+
+                made.side_effect = None
+                app.set_menubar(True)
+                item = made.return_value
+                self.assertIs(app.status, item)
+                self.assertIs(made.call_args.args[1], False)  # no Settings… in its menu: this window has none to open
+                item.show.assert_called_with(1, 0, 0, True)  # one ready, none needing attention, none merged; merging
+                item.close.reset_mock()
+                app.open_settings = mock.Mock()
+                app.set_menubar(True)
+                item.close.assert_called_once_with()  # the one it replaces
+                self.assertIs(made.call_args.args[1], True)
+                self.assertTrue(saved())
+
+                item.show.side_effect = RuntimeError("Cocoa has no setTitle:")  # it breaks later: the same
+                item.close.reset_mock()
+                app.render()
+                self.assertIsNone(app.status)
+                item.close.assert_called_once_with()  # not left in the menu bar with counts that have gone stale
+                self.logged(root, "menu bar item failed, so it's off: RuntimeError('Cocoa has no setTitle:')")
+                app.render()
+                self.assertEqual(said().count("menu bar item failed"), 1)
+                self.assertEqual(tree.set(ROW, "codex"), "Thumbs up")
+
+                item.show.side_effect = None
+                app.set_menubar(True)
+                item.close.reset_mock()
+                app.set_menubar(False)  # switched off: taken away, and saved
+                item.close.assert_called_once_with()
+                self.assertEqual((app.status, app.menubar, saved()), (None, False, False))
+
+        self.window(FakeGh(reactions=THUMBS), check)
+
+    def test_menu_bar_without_objective_c_makes_nothing(self):
+        import ctypes
+        with mock.patch.object(ca.MenuBar, "c", None), \
+                mock.patch.object(ctypes.cdll, "LoadLibrary", side_effect=OSError("no libobjc")) as load:
+            with self.assertRaises(OSError):
+                ca.MenuBar(mock.Mock(side_effect=AssertionError("nothing was chosen")))
+        load.assert_called_once()
+        self.assertEqual(ca.MenuBar.live, {})
+
+    def test_menu_choices_go_through_the_event_queue(self):
+        # Cocoa's side: a chosen item names its target and its tag. The MenuBar that target belongs to is told.
+        bar = mock.Mock()
+        with mock.patch.dict(ca.MenuBar.live, {1234: bar}):
+            for tag in (2, 6, 7, -1):  # the last two aren't actions
+                ca.MenuBar.chose(1234, tag)
+            ca.MenuBar.chose(99, 2)  # an item whose MenuBar is gone
+        self.assertEqual(bar.post.call_args_list, [mock.call("poll"), mock.call("quit")])
+        self.assertEqual(ca.MenuBar.ACTIONS[:2], ("ready", "attention"))  # the counts that open a view: both are views
+        self.assertLessEqual(set(ca.MenuBar.ACTIONS[:2]), set(ca.VIEWS))
+        fake = FakeGh(reactions=THUMBS)
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            with mock.patch.object(ca.sys, "platform", "darwin"):
+                app.set_menubar(True)
+            post, item = self.menubar.call_args.args[0], self.menubar.return_value
+            polls = lambda: sum(args[:2] == ("pr", "list") for args, _ in fake.calls)
+            # The window's side: post() is called inside Cocoa, so it only queues. drain() does the rest.
+            before = polls()
+            for action in ("merging", "poll", "no such action"):
+                post(action)
+            self.assertEqual((app.live["merging"], app.merging.get(), polls()), (True, True, before))
+            self.assertEqual(app.events.qsize(), 3)
+            self.settle(root, lambda: polls() > before and not app.busy)
+            self.assertEqual((app.live["merging"], app.merging.get()), (False, False))  # off first, so nothing merged
+            self.assertEqual(fake.merges(), [])
+            item.show.assert_called_with(1, 0, 0, False)
+            post("merging")
+            self.settle(root, lambda: app.live["merging"])
+            with mock.patch.object(root, "focus_force") as forced:
+                post("open")
+                self.settle(root, lambda: forced.called)
+                app.pick_repo(REPO)
+                app.query.set("nothing like it")
+                post("attention")  # a count in the menu: the window comes forward listing what it counted
+                self.settle(root, lambda: forced.call_count == 2)
+            self.assertEqual((app.view, app.only, app.query.get()), ("attention", None, ""))
+            app.open_settings = mock.Mock()
+            post("settings")
+            self.settle(root, lambda: app.open_settings.called)
+            with mock.patch.object(app, "close") as closed:
+                post("quit")
+                self.settle(root, lambda: closed.called)
+
+        self.window(fake, check)
 
     def test_window_follows_system_appearance(self):
         # Re-checked on each tick; the window is re-themed only when it changes.
@@ -863,6 +1124,14 @@ class Test(unittest.TestCase):
             self.assertEqual(ca.pr_state(repo, 214), {"state": "OPEN", "mergedAt": None, "number": 214,
                                                       "title": "Checkout: remember the last shipping address"})
             self.assertEqual(ca.pr_state(repo, 1)["state"], "MERGED")  # not in its open list
+        # $DEMO_GH_GONE takes PRs out of the open list: they merged, and keep their titles.
+        gone = lambda *args: subprocess.run([ca.sys.executable, demo, *args], capture_output=True, text=True,
+                                            env=dict(os.environ, DEMO_GH_LOG=os.devnull, DEMO_GH_GONE="211,41"))
+        with mock.patch.object(ca, "gh", lambda *args, cwd=None: gone(*args)):
+            listed = ca.gh_json("pr", "list", "-R", repo, "--json", "number")
+            self.assertEqual([pr["number"] for pr in listed], [214, 213, 208])
+            self.assertEqual(ca.pr_state(repo, 211), {"state": "MERGED", "mergedAt": "2026-11-09T14:08:00Z",
+                                                      "number": 211, "title": "Bump actions/checkout from 4 to 5"})
 
     def test_modes(self):
         thumbs = THUMBS
@@ -1153,10 +1422,12 @@ class Test(unittest.TestCase):
             self.assertEqual(ca.load_settings(), {"repos": [], "mode": "", "interval": 60,
                                                   "merging": True, "geometry": None, "detail": 320,
                                                   "appearance": "system",
-                                                  "view": "all", "sidebar": 232, "log": True})
+                                                  "view": "all", "sidebar": 232, "log": True,
+                                                  "notify": dict.fromkeys(ca.NOTIFY_KINDS, True), "menubar": True})
             saved = {"repos": [REPO], "mode": "admin", "interval": 5, "merging": False, "geometry": "800x600+0+0",
                      "detail": 400,
-                     "appearance": "dark", "view": "attention", "sidebar": 300, "log": False}
+                     "appearance": "dark", "view": "attention", "sidebar": 300, "log": False,
+                     "notify": dict(dict.fromkeys(ca.NOTIFY_KINDS, True), cleared=False), "menubar": False}
             ca.save_settings(saved)
             self.assertEqual(ca.load_settings(), saved)
 
@@ -1235,7 +1506,11 @@ class Test(unittest.TestCase):
         for msg, kind in (("asked Codex for a review", "review"), ("review request FAILED: boom", "error"),
                           ("merged now (force)", "merge"), ("not merged — enabled auto-merge", "merge"),
                           ("can't add octo/x: boom", "error"), ("poll crashed; retrying next interval", "error"),
-                          ("marked don't merge", "info"), ("branch updated", "info"), ("opened in browser", "info")):
+                          ("marked don't merge", "info"), ("branch updated", "info"), ("opened in browser", "info"),
+                          # A notification's line ends with a PR's title, which doesn't get to say what kind it is.
+                          ("notified: Merged #7 · Retry failed uploads", "notice"),
+                          ("notified: Merge conflict on #7 · t", "notice"),
+                          ("can't notify: Codex cleared #7 · t", "error")):
             self.assertEqual(ca.kind_of(msg), kind, msg)
 
     def test_split_log(self):

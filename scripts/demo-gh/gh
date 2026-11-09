@@ -54,10 +54,16 @@ BRANCHES = {
 }
 
 
-def pr_list(repo):
+# PRs to leave out of the open lists, as "211,41": they've merged. For seeing what prherd does when one does.
+GONE = {int(number) for number in os.environ.get("DEMO_GH_GONE", "").split(",") if number.strip()}
+
+
+def pr_list(repo, gone=GONE):
     import time  # here, not at the top: the ages are the only thing in this file that needs a clock
     out = []
     for number, title, author, verdict, extra in REPOS[repo]:
+        if number in gone:
+            continue
         branch, minutes = BRANCHES[number]
         out.append({
             "headRefName": branch,
@@ -73,8 +79,9 @@ def pr_list(repo):
 
 def pr_view(repo, number, fields):
     """The asked-for fields of one PR. A number that isn't in the demo's open list left it by merging."""
-    pr = next((p for p in pr_list(repo) if p["number"] == number), None)
+    pr = next((p for p in pr_list(repo, ()) if p["number"] == number), None)
     known = pr or {"number": number, "title": "A pull request merged earlier", "labels": []}
+    pr = pr if number not in GONE else None
     data = dict(known, state="OPEN" if pr else "MERGED", mergedAt=None if pr else AFTER)
     return {field: data.get(field) for field in fields}
 
