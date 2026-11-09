@@ -6,7 +6,8 @@ until it's shared from its Share menu).
 
 These files are Design Component pages (`.dc.html`) exported from that canvas.
 They load the canvas runtime (`support.js`), so they don't render on their own
-in a browser. `canvas.json` is the canvas layout.
+in a browser. `canvas.json` is the canvas layout. The plan for bringing the
+design into the app is in [PLAN.md](PLAN.md).
 
 ## Artboards
 
