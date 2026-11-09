@@ -59,6 +59,14 @@ def pr_list(repo):
     return out
 
 
+def pr_view(repo, number, fields):
+    """The asked-for fields of one PR. A number that isn't in the demo's open list left it by merging."""
+    pr = next((p for p in pr_list(repo) if p["number"] == number), None)
+    known = pr or {"number": number, "title": "A pull request merged earlier", "labels": []}
+    data = dict(known, state="OPEN" if pr else "MERGED", mergedAt=None if pr else AFTER)
+    return {field: data.get(field) for field in fields}
+
+
 def api(path):
     m = re.match(r"repos/([^/]+/[^/]+)/(commits|issues)/([^/?]+)/([a-z-]+)", path)
     if not m:
@@ -91,6 +99,11 @@ def main(args):
     if args[:2] == ["pr", "list"]:
         repo = args[args.index("-R") + 1].split("/", 1)[1]
         return print(json.dumps(pr_list(repo)))
+    if args[:2] == ["pr", "view"]:
+        repo = args[args.index("-R") + 1].split("/", 1)[1]
+        return print(json.dumps(pr_view(repo, int(args[2]), args[args.index("--json") + 1].split(","))))
+    if args[:2] == ["auth", "status"]:  # as gh words it, less the tick, which not every console can print
+        return print("github.com\n  Logged in to github.com account demo (keyring)\n  - Active account: true")
     if args[:1] == ["api"]:
         path = next((a for a in args[1:] if a.startswith("repos/") or a == "user"), "")
         if path == "user":

@@ -109,26 +109,35 @@ def pushed_at(host, nwo, pr):
     return max(times, default=None)
 
 
-def verdict(repo, pr):
-    """How Codex cleared this PR's current head, "👀" if it's still reviewing it, or None."""
+def verdict_detail(repo, pr):
+    """verdict() and the times behind it, for the detail panel: when this head arrived ("pushed"), when
+    Codex started reviewing it ("reviewing_at", its 👀) and when it cleared it ("cleared_at").
+    Each is None if it didn't happen."""
     host, nwo = repo.split("/", 1)
     issue = f"repos/{nwo}/issues/{pr['number']}"
     pushed = pushed_at(host, nwo, pr)
+    d = {"verdict": None, "pushed": pushed, "cleared_at": None, "reviewing_at": None}
     if not pushed:  # can't tell when this head arrived, so no go-ahead can be tied to it
-        return None
+        return d
     # A reaction names no commit and survives pushes, so it only counts if it came after this head arrived.
-    reactions = {r["content"] for r in api(host, f"{issue}/reactions?per_page=100")
+    reactions = {r["content"]: r["created_at"] for r in api(host, f"{issue}/reactions?per_page=100")
                  if is_bot(r) and r["created_at"] > pushed}
+    d["reviewing_at"] = reactions.get("eyes")  # Codex reacts 👀 when it starts a review
     if "+1" in reactions:
-        return "👍"
+        return dict(d, verdict="👍", cleared_at=reactions["+1"])
     for c in api(host, f"{issue}/comments?per_page=100"):
         body = c.get("body") or ""
         m = is_bot(c) and CLEAN.match(body) and REVIEWED.search(body)
         # Counts only for the commit it reviewed, and only if that head didn't arrive later
         # (a pushed commit crafted to share the short hash).
         if m and pr["headRefOid"].startswith(m[1]) and c["created_at"] > pushed:
-            return "no major issues"
-    return "👀" if "eyes" in reactions else None  # Codex reacts 👀 when it starts a review
+            return dict(d, verdict="no major issues", cleared_at=c["created_at"])
+    return dict(d, verdict="👀" if "eyes" in reactions else None)
+
+
+def verdict(repo, pr):
+    """How Codex cleared this PR's current head, "👀" if it's still reviewing it, or None."""
+    return verdict_detail(repo, pr)["verdict"]
 
 
 def dont_merge(pr):
@@ -217,11 +226,12 @@ def flag_conflict(repo, pr):
     return "merge conflict; commented on the PR" if not r.returncode else f"merge conflict; comment FAILED: {output(r)}"
 
 
-def poll(repo, log, merge_mode):
+def poll(repo, log, merge_mode, details=None):
     """One pass over repo's open PRs. Returns [(pr, verdict)], or None if listing failed.
 
     merge_mode() is asked right before each merge: the mode to merge with, or None to skip.
     Conflicting PRs are commented on either way, unless marked don't merge.
+    details, if a dict, gets {number: verdict_detail()} for each PR whose verdict was looked up.
     """
     try:
         # shortcut: PRs past the 1000th open one are never seen; page through the API if a repo gets there.
@@ -246,11 +256,14 @@ def poll(repo, log, merge_mode):
             log(f"{tag}: {flag_conflict(repo, pr)}")
             continue
         try:
-            v = verdict(repo, pr)
+            detail = verdict_detail(repo, pr)
         except (RuntimeError, ValueError) as e:
             log(f"{tag}: failed to fetch Codex reactions/comments; retrying ({e})")
             rows.append((pr, "?"))
             continue
+        v = detail["verdict"]
+        if details is not None:
+            details[pr["number"]] = detail
         rows.append((pr, v))
         if v == "👀":
             log(f"{tag}: Codex is reviewing (👀)")
@@ -260,6 +273,300 @@ def poll(repo, log, merge_mode):
             log(f"{tag}: {v} — squash merging")
             log(f"{tag}: {merge(repo, pr, mode)}")
     return rows
+
+
+# What the detail panel, first-run screen, notifications and Open at login need. No window code from here to
+# load_settings: all of it is called by the window, and tested without one.
+GO_AHEADS = ("👍", "no major issues")
+
+
+def short_repo(repo):
+    """A repo as people read it: without the host when that's github.com."""
+    return repo[len("github.com/"):] if repo.startswith("github.com/") else repo
+
+
+def head7(pr):
+    return (pr.get("headRefOid") or "")[:7] or "this head"
+
+
+def readiness(pr, v):
+    """The detail panel's merge checklist for a PR and its verdict from poll(): [(tone, title, note)].
+
+    Always five, in this order: Codex's go-ahead, conflicts, the don't-merge label, draft, queued.
+    tone is a VERDICTS tone: "ok" passes, "warn" waits, "bad" and "err" block, "none" has nothing to say.
+    """
+    sha, base = head7(pr), pr.get("baseRefName") or "the base branch"
+    if v in GO_AHEADS:
+        go = ("ok", "Codex go-ahead on the current head", f"{'Newer than' if v == '👍' else 'Receipt names'} {sha}")
+    elif v == "👀":
+        go = ("warn", "Codex is reviewing", "Its verdict lands on the next poll")
+    elif v == "?":
+        go = ("err", "Couldn't read Codex's verdict", "GitHub returned an error; retrying")
+    elif v == "merge conflict":  # poll() doesn't ask about Codex for these two
+        go = ("warn", "Not checked while conflicting", "Resolve the conflict first")
+    elif v == "don't merge":
+        go = ("warn", "Not checked while held", "Allow merge to check again")
+    else:
+        go = ("warn", "No go-ahead yet", "Request a Codex review to get one")
+    if v == "merge conflict":
+        conflict = ("bad", f"Conflicts with {base}", f"Commented once on {sha}")
+    elif pr.get("mergeable") == "CONFLICTING":  # held as well: poll() leaves it uncommented
+        conflict = ("bad", f"Conflicts with {base}", "Not commented on while held")
+    elif pr.get("mergeable") == "UNKNOWN":
+        conflict = ("warn", f"Checking for conflicts with {base}", "GitHub is still working it out")
+    else:
+        conflict = ("ok", f"No conflicts with {base}", "Mergeable as of the last poll")
+    if v == "don't merge":
+        label = ("bad", f"Labeled {DONT_MERGE}", "Allow merge to release it")
+    else:
+        label = ("ok", f"Not labeled {DONT_MERGE}", "")
+    if pr.get("isDraft"):
+        draft = ("warn", "Draft pull request", "Mark ready for review on GitHub")
+    else:
+        draft = ("ok", "Ready for review", "Not a draft")
+    if pr.get("autoMergeRequest") and v != "don't merge":  # as row_values: a held PR's is cancelled by the poll
+        queue = ("ok", "Auto-merge queued", "GitHub merges it once required checks pass")
+    elif v in GO_AHEADS:
+        queue = ("warn", "Not queued yet", "prherd merges it on a poll with Auto-merge on")
+    else:
+        queue = ("none", "Not queued", "")
+    return [go, conflict, label, draft, queue]
+
+
+def headline(pr, v, merging=True):
+    """The detail panel's status card for a PR and its verdict: (tone, title, detail).
+    merging is the Auto-merge switch: off, a cleared PR is only watched."""
+    sha = head7(pr)
+    if v == "don't merge":
+        return ("hold", "Held — won't merge",
+                f"Labeled {DONT_MERGE}. prherd skips it and cancels any queued auto-merge.")
+    if v == "merge conflict":
+        return ("bad", "Blocked by a merge conflict",
+                "Update the branch or resolve locally. Codex will need to review the new head.")
+    if v == "?":
+        return "err", "Couldn't read Codex's verdict", "GitHub returned an error. prherd retries on the next poll."
+    if v == "👀":
+        return ("warn", "Codex is reviewing", "If it clears this head, prherd merges on the poll after." if merging
+                else "Auto-merge is off, so prherd won't merge it when Codex clears this head.")
+    if v not in GO_AHEADS:
+        return ("none", "Draft — not merging yet" if pr.get("isDraft") else "Waiting for Codex",
+                f"No go-ahead newer than {sha}. Request a review to start one.")
+    if pr.get("isDraft"):  # as row_values: draft outranks queued
+        return ("warn", "Draft — not merging yet",
+                f"Codex cleared {sha}, but GitHub won't merge a draft. Mark it ready for review on GitHub.")
+    if pr.get("autoMergeRequest"):  # GitHub merges it by itself, whatever the Auto-merge switch says
+        return ("ok", "Cleared — queued to merge",
+                f"Squash merge is queued at {sha} and lands once required checks pass.")
+    if not merging:
+        return ("ok", "Cleared — watching only",
+                f"Codex cleared {sha}. Auto-merge is off, so prherd won't merge it. Use Merge now, or resume.")
+    return ("ok", "Cleared — merges on the next poll",
+            f"Codex cleared {sha}. prherd squash-merges it on the next poll; the log says why if it can't.")
+
+
+def timeline(pr, v, detail):
+    """What's known to have happened to this head, oldest first: [(iso time, tone, text)].
+
+    detail is the PR's verdict_detail() as poll() stored it, or None for a PR it didn't look up.
+    tone is a VERDICTS tone, or "acc" (the accent) for the queued auto-merge.
+    """
+    sha, d = head7(pr), detail or {}
+    events = [(d.get("pushed"), "none", f"Head {sha} pushed"),
+              (d.get("reviewing_at"), "warn", "Codex started reviewing")]
+    if v in GO_AHEADS:
+        events.append((d.get("cleared_at"), "ok",
+                       "Codex gave a thumbs-up" if v == "👍" else f"Codex: no major issues on {sha}"))
+    events.append(((pr.get("autoMergeRequest") or {}).get("enabledAt"), "acc", "Auto-merge queued behind checks"))
+    # GitHub's times are all UTC in one format, so they sort as text. Ties keep the order above.
+    return sorted((e for e in events if e[0]), key=lambda e: e[0])
+
+
+# The first gh with `api --slurp`, which every Codex lookup pages with.
+GH_MIN = (2, 48)
+
+
+def gh_version(text):
+    """`gh --version` output -> (2, 63, 2), or None if it isn't that."""
+    m = re.search(r"gh version (\d+)\.(\d+)(?:\.(\d+))?", text or "")
+    return tuple(int(n) for n in m.groups() if n is not None) if m else None
+
+
+def setup_checks():
+    """The first-run screen's checks: [(ok, title, note)], for gh installed and new enough, then signed in."""
+    def ask(*args):
+        try:
+            return gh(*args)
+        except OSError:  # no gh to run: that raises, where a gh that fails returns an exit code
+            return None
+
+    dotted = lambda version: ".".join(map(str, version))
+    title, r = "GitHub CLI installed", ask("--version")
+    version = gh_version(r.stdout) if r and not r.returncode else None
+    if r is None:
+        installed = (False, title, "gh not found; install it from cli.github.com")
+    elif not version:
+        installed = (False, title, "couldn't read gh's version")
+    elif version < GH_MIN:
+        installed = (False, title, f"gh {dotted(version)} is too old; prherd needs {dotted(GH_MIN)} or newer")
+    else:
+        installed = (True, title, f"gh {dotted(version)}")
+    title, r = "Signed in", ask("auth", "status")
+    if r is None:
+        signed = (False, title, "needs gh")
+    elif r.returncode:
+        signed = (False, title, "run `gh auth login` in a terminal")
+    else:  # "✓ Logged in to github.com account octocat (keyring)"; "as octocat" before gh 2.40
+        m = re.search(r"Logged in to \S+ (?:account|as) (\S+)", r.stdout + r.stderr)
+        signed = (True, title, m[1] if m else "")
+    return [installed, signed]
+
+
+def pr_state(repo, number):
+    """{"state": "MERGED" | "CLOSED" | "OPEN", "mergedAt", "title", "number"} for one PR, or None if gh can't say."""
+    try:
+        state = gh_json("pr", "view", str(number), "-R", repo, "--json", "state,mergedAt,title,number")
+    except (RuntimeError, ValueError, OSError):
+        return None
+    return state if isinstance(state, dict) else None
+
+
+NOTIFY_KINDS = ("merged", "conflict", "failed", "cleared")
+
+
+def checked_notify(value):
+    """The saved notification switches, each checked: {kind: bool}, on unless saved as false."""
+    value = value if isinstance(value, dict) else {}
+    return {kind: value[kind] if isinstance(value.get(kind), bool) else True for kind in NOTIFY_KINDS}
+
+
+def notices(repo, before, rows, streaks, state=pr_state):
+    """What one poll of repo is worth notifying about: [(kind, title, body)], kind from NOTIFY_KINDS.
+
+    rows is poll()'s result; before is {number: (pr, verdict)} from the repo's last successful poll.
+    before is None on the first poll, which notifies nothing: every launch would fire a burst.
+    A PR not in before is silent too, for the same reason; it notifies once its verdict changes.
+    streaks is the caller's {(repo, number): failed lookups in a row}, kept current here.
+    state() is asked about each PR that left the list, which runs gh: keep this off the Tk thread.
+    """
+    out = []
+
+    def say(kind, title, number, text):
+        out.append((kind, f"{title} #{number}", f"{short_repo(repo)} · {text}"))
+
+    if rows is None:  # the listing failed: that isn't every PR leaving
+        return out
+    for pr, v in rows:
+        number, text = pr["number"], pr.get("title", "")
+        if v == "?":
+            streaks[repo, number] = streaks.get((repo, number), 0) + 1
+            if streaks[repo, number] == 2 and before is not None:  # one failure is a blip; a third is old news
+                say("failed", "Lookup failed for", number, text)
+        else:
+            streaks.pop((repo, number), None)
+        if before is None or number not in before:
+            continue
+        was = before[number][1]
+        if v == "merge conflict" and was != v:
+            say("conflict", "Merge conflict on", number, text)
+        if v in GO_AHEADS and was not in GO_AHEADS:
+            say("cleared", "Codex cleared", number, text)
+    still_open = {pr["number"] for pr, _ in rows}
+    for number, (pr, _) in (before or {}).items():
+        if number not in still_open:
+            streaks.pop((repo, number), None)
+            gone = state(repo, number)
+            if gone and gone.get("state") == "MERGED":  # closed without merging, or unknown: say nothing
+                say("merged", "Merged", number, gone.get("title") or pr.get("title", ""))
+    return out
+
+
+# PR titles are anyone's text, so they reach AppleScript as arguments, never as part of the script.
+NOTIFY_SCRIPT = "on run argv\ndisplay notification (item 2 of argv) with title (item 1 of argv)\nend run"
+
+
+def notify(title, body):
+    """Post a desktop notification. False where there's no way to, or it failed. Never raises."""
+    if sys.platform == "darwin":
+        argv = ["/usr/bin/osascript", "-e", NOTIFY_SCRIPT, "--", str(title), str(body)]
+    elif tool := shutil.which("notify-send"):  # Linux desktops; Windows has nothing built in to call
+        argv = [tool, "--app-name=prherd", "--", str(title), str(body)]
+    else:
+        return False
+    try:  # spawned as gh() is: no cwd and close_fds=False, so no fork
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=10, close_fds=False, creationflags=NO_WINDOW)
+    except (OSError, ValueError, subprocess.SubprocessError):  # ValueError: a NUL in the text
+        return False
+    return not r.returncode
+
+
+# The LaunchAgent's label (the app's bundle id), and where Windows lists what to run at sign-in.
+LOGIN_LABEL = "com.pacnpal.prherd"
+LOGIN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+
+def launch_command():
+    """The argv that starts this app: the packaged app's executable, or python and this file."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable]
+    return [sys.executable, os.path.abspath(__file__)]
+
+
+def login_item_path():
+    """The file that opens this app at login: a LaunchAgent on macOS, an XDG autostart entry on Linux.
+    None on Windows, which keeps that in the registry. Worked out when called, so it follows HOME."""
+    if sys.platform == "darwin":
+        return os.path.join(os.path.expanduser("~"), "Library", "LaunchAgents", f"{LOGIN_LABEL}.plist")
+    if sys.platform == "win32":
+        return None
+    config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(config, "autostart", "prherd.desktop")
+
+
+def desktop_exec(argv):
+    """argv as a .desktop file's Exec value: each word quoted, then backslashes doubled as any string value's are."""
+    words = ['"' + re.sub(r'(["`$\\])', r"\\\1", word).replace("%", "%%") + '"' for word in argv]
+    return " ".join(words).replace("\\", "\\\\")
+
+
+def login_item_enabled():
+    if sys.platform != "win32":
+        return os.path.exists(login_item_path())
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, LOGIN_KEY) as key:
+            winreg.QueryValueEx(key, "prherd")
+    except OSError:
+        return False
+    return True
+
+
+def login_item(enable):
+    """Open this app at login, or stop. Only changes the next login: nothing is started or quit now."""
+    path = login_item_path()
+    try:
+        if sys.platform == "win32":
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, LOGIN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+                if enable:
+                    winreg.SetValueEx(key, "prherd", 0, winreg.REG_SZ, subprocess.list2cmdline(launch_command()))
+                else:
+                    winreg.DeleteValue(key, "prherd")
+        elif not enable:
+            os.remove(path)
+        else:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            if sys.platform == "darwin":
+                import plistlib
+                with open(path, "wb") as f:
+                    plistlib.dump({"Label": LOGIN_LABEL, "ProgramArguments": launch_command(), "RunAtLoad": True}, f)
+            else:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write("[Desktop Entry]\nType=Application\nName=prherd\n"
+                            f"Exec={desktop_exec(launch_command())}\nTerminal=false\n")
+    except OSError as e:
+        if enable or not isinstance(e, FileNotFoundError):  # nothing to remove: it's already off
+            return f"{'open at login' if enable else 'turning off open at login'} FAILED: {e}"
+    return "opens at login" if enable else "no longer opens at login"
 
 
 def load_settings():
