@@ -206,14 +206,14 @@ class Test(unittest.TestCase):
 
     def test_row_values(self):
         pr = {"isDraft": False, "autoMergeRequest": None, "author": {"login": "octocat"}}
-        self.assertEqual(ca.row_values(pr, None), ("Awaiting Codex", "octocat", ""))
+        self.assertEqual(ca.row_values(pr, None), ("Awaiting Codex", "octocat", "Open", "", ""))
         labels = {v: ca.row_values(pr, v)[0] for v in ("👍", "no major issues", "👀", "merge conflict", "?", "don't merge")}
         self.assertEqual(labels, {"👍": "Thumbs up", "no major issues": "No major issues", "👀": "Reviewing",
                                   "merge conflict": "Merge conflict", "?": "Lookup failed", "don't merge": "Don't merge"})
-        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={}), "👍")[2], "")  # gh's empty value: not queued
-        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "queued")
-        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "don't merge")[2], "")
-        self.assertEqual(ca.row_values(dict(pr, isDraft=True, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "draft")
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={}), "👍")[2], "Open")  # gh's empty value: not queued
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "Queued")
+        self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "don't merge")[2], "Open")
+        self.assertEqual(ca.row_values(dict(pr, isDraft=True, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "Draft")
         self.assertEqual(ca.row_values(dict(pr, author=None), "👍")[1], "")  # a deleted account
 
     def window(self, fake, check, interval=3600):
@@ -515,9 +515,10 @@ class Test(unittest.TestCase):
     def test_settings_round_trip(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/sub/s.json"):
             self.assertEqual(ca.load_settings(), {"repos": [], "mode": "", "interval": 60,
-                                                  "merging": True, "geometry": None, "appearance": "system"})
+                                                  "merging": True, "geometry": None, "appearance": "system",
+                                                  "view": "all", "sidebar": 232, "log": True})
             saved = {"repos": [REPO], "mode": "admin", "interval": 5, "merging": False, "geometry": "800x600+0+0",
-                     "appearance": "dark"}
+                     "appearance": "dark", "view": "attention", "sidebar": 300, "log": False}
             ca.save_settings(saved)
             self.assertEqual(ca.load_settings(), saved)
 
@@ -547,6 +548,148 @@ class Test(unittest.TestCase):
     def test_procfile(self):
         procfile = pathlib.Path(__file__).with_name("Procfile").read_text()
         self.assertIn("prherd: ./prherd.py --headless --admin owner/repo", procfile)
+
+    def test_row_values_head_and_age(self):
+        pr = {"isDraft": False, "autoMergeRequest": None, "author": None, "headRefOid": HEAD, "updatedAt": PUSHED}
+        now = time.mktime(time.strptime("2026-10-26 14:17:58 UTC", "%Y-%m-%d %H:%M:%S %Z")) - time.timezone
+        self.assertEqual(ca.row_values(pr, "👍", now)[3:], ("bfd4fae", "3h"))
+        self.assertEqual(ca.row_values(dict(pr, headRefOid=None, updatedAt=None), "👍", now)[3:], ("", ""))
+
+    def test_age(self):
+        now = 1_800_000_000
+        for seconds, shown in ((30, "now"), (120, "2m"), (3 * 3600, "3h"), (2 * 86400, "2d"), (21 * 86400, "3w"),
+                               (800 * 86400, "2y"), (-300, "now")):  # the last: GitHub's clock ahead of this one
+            iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - seconds))
+            self.assertEqual(ca.age(iso, now), shown, iso)
+        for unreadable in (None, "", "yesterday", 5):
+            self.assertEqual(ca.age(unreadable, now), "")
+
+    def test_short_drops_only_github_com(self):
+        self.assertEqual(ca.short(REPO), "octo/direct-repo")
+        self.assertEqual(ca.short("github.example/acme/local-repo"), "github.example/acme/local-repo")
+
+    def test_matches_views_and_search(self):
+        pr = {"number": 214, "title": "Checkout: remember the address", "headRefName": "feat/remember",
+              "author": {"login": "mira-k"}}
+        shown = {view: [v for v in ca.VERDICTS if ca.matches(pr, v, view, "")] for view in ca.VIEWS}
+        self.assertEqual(shown, {"all": list(ca.VERDICTS), "ready": ["👍", "no major issues"], "reviewing": ["👀"],
+                                 "attention": ["merge conflict", "?"], "waiting": [None], "held": ["don't merge"]})
+        for query in ("checkout", "REMEMBER", "feat/", "mira", "214", "#214", "mira  checkout", " "):
+            self.assertTrue(ca.matches(pr, "👍", "all", query), query)
+        for query in ("cart", "#215", "mira cart"):  # every word has to be there
+            self.assertFalse(ca.matches(pr, "👍", "all", query), query)
+        self.assertFalse(ca.matches(pr, "👀", "ready", "checkout"))  # in the search, not in the view
+        # As the fake gh lists a PR: no branch. And a deleted account's PR has no author.
+        self.assertTrue(ca.matches({"number": 7, "title": "t", "author": None}, None, "waiting", "#7 t"))
+
+    def test_kind_of(self):
+        kinds = lambda log: [ca.kind_of(line) for line in log.splitlines()]
+        self.assertEqual(kinds(run(FakeGh(reactions=THUMBS))[1]), ["poll", "codex", "merge"])
+        self.assertEqual(kinds(run(FakeGh(reactions=[dict(THUMBS[0], content="eyes")]))[1]), ["poll", "review"])
+        self.assertEqual(kinds(run(FakeGh())[1]), ["poll", "poll"])
+        self.assertEqual(kinds(run(FakeGh(labels=["do-not-merge"], auto={"enabledAt": AFTER}))[1]),
+                         ["poll", "poll", "merge"])
+        self.assertEqual(kinds(run(FakeGh(mergeable="CONFLICTING"))[1]), ["poll", "conflict"])
+        self.assertEqual(kinds(run(FakeGh(mergeable="CONFLICTING", fail=["pr comment"]))[1]), ["poll", "error"])
+        self.assertEqual(kinds(run(FakeGh(fail=["api"]))[1]), ["poll", "error"])
+        self.assertEqual(kinds(run(FakeGh(fail=["pr list"]))[1]), ["error"])
+        self.assertEqual(kinds(run(FakeGh(reactions=THUMBS, merge=(1, "nope")))[1]), ["poll", "codex", "error"])
+        for msg, kind in (("asked Codex for a review", "review"), ("review request FAILED: boom", "error"),
+                          ("merged now (force)", "merge"), ("not merged — enabled auto-merge", "merge"),
+                          ("can't add octo/x: boom", "error"), ("poll crashed; retrying next interval", "error"),
+                          ("marked don't merge", "info"), ("branch updated", "info"), ("opened in browser", "info")):
+            self.assertEqual(ca.kind_of(msg), kind, msg)
+
+    def test_split_log(self):
+        self.assertEqual(ca.split_log(f"  {ROW}: marked don't merge; skipping"),
+                         ("octo/direct-repo#7", "marked don't merge; skipping"))
+        self.assertEqual(ca.split_log(f"{REPO}: failed to list open PRs; retrying (HTTP 502: boom)"),
+                         ("octo/direct-repo", "failed to list open PRs; retrying (HTTP 502: boom)"))
+        self.assertEqual(ca.split_log("ghe.example/a/b#3: branch updated"), ("ghe.example/a/b#3", "branch updated"))
+        for msg in ("poll crashed; retrying next interval (boom)", "can't add octo/x: boom"):  # about no one PR
+            self.assertEqual(ca.split_log(msg), ("", msg))
+
+    def test_whoami(self):
+        answer = lambda out: lambda *args, cwd=None: subprocess.CompletedProcess(args, 0, out, "")
+        with mock.patch.object(ca, "gh", answer(json.dumps(ME))):
+            self.assertEqual(ca.whoami(), "watcher")
+        for unusable in (answer("[]"), answer(""), answer('{"message": "Bad credentials"}'), FakeGh(fail=["api"])):
+            with mock.patch.object(ca, "gh", unusable):
+                self.assertEqual(ca.whoami(), "")
+
+    def test_every_look_can_be_drawn(self):
+        # Each verdict, view and log kind names an icon and colors: all of them exist, in both palettes.
+        for look in (*ca.VERDICTS.values(), *ca.VIEWS.values()):
+            self.assertIn(look["icon"], ca.ICONS)
+        for palette in ca.PALETTE.values():
+            self.assertLessEqual({view["color"] for view in ca.VIEWS.values()}, set(palette))
+            for tone in [look["tone"] for look in ca.VERDICTS.values()] + [tone for _, tone, _ in ca.KINDS]:
+                self.assertLessEqual({f"{tone}-fg", f"{tone}-bg"}, set(palette))
+        for name, shapes in ca.ICONS.items():
+            png = ca.draw((("#4F46E5", 2, shapes),), 16, 16)
+            self.assertEqual(png[:8], b"\x89PNG\r\n\x1a\n", name)
+            self.assertEqual(png[16:24], (16).to_bytes(4, "big") * 2, name)  # its width and height
+        self.assertEqual(ca.mix("#000000", "#FFFFFF", 0.5), "#808080")
+
+    def test_layout_settings_round_trip_and_fall_back(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
+            layout = lambda: {key: ca.load_settings()[key] for key in ("view", "sidebar", "log")}
+            ca.save_settings({"view": "attention", "sidebar": 300, "log": False})
+            self.assertEqual(layout(), {"view": "attention", "sidebar": 300, "log": False})
+            for bad in ({"view": "everything"}, {"view": ["all"]}, {"view": None}, {"sidebar": 20}, {"sidebar": 9000},
+                        {"sidebar": "300"}, {"sidebar": True}, {"sidebar": 300.5}, {"log": "no"}, {"log": None}):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps(bad))
+                self.assertEqual(layout(), {"view": "all", "sidebar": 232, "log": True}, bad)
+
+    def test_window_view_and_search_filter_the_tree(self):
+        conflicting = {"number": 8, "title": "Cart badge", "headRefName": "fix/cart", "mergeable": "CONFLICTING"}
+        other = f"{REPO}#8"
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            listed = lambda: list(tree.get_children(REPO)) if tree.exists(REPO) else []
+            counts = lambda: {key: str(row.count.cget("text")) for key, row in app.view_rows.items()}
+            wait_for("Thumbs up")
+            self.assertEqual(listed(), [ROW, other])
+            self.assertEqual(tree.set(other, "codex"), "Merge conflict")
+            self.assertEqual(counts(), {"all": "2", "ready": "1", "reviewing": "0", "attention": "1", "waiting": "0",
+                                        "held": "0"})
+            app.pick_view("attention")
+            self.assertEqual(listed(), [other])
+            app.pick_view("held")
+            self.assertEqual(listed(), [])  # a repo with nothing in the view isn't listed either
+            app.pick_view("all")
+            for query, found in (("CART", [other]), ("fix/", [other]), ("#7", [ROW]), ("octocat", [ROW, other]),
+                                 ("nothing like it", []), ("", [ROW, other])):
+                app.query.set(query)
+                self.assertEqual(listed(), found, query)
+            app.pick_view("ready")
+            app.query.set("cart")  # both at once: the conflicting PR isn't ready
+            self.assertEqual(listed(), [])
+            self.assertEqual(counts()["attention"], "1")  # the counts are of the views, whatever the search
+
+        self.window(FakeGh(reactions=THUMBS, more=[conflicting]), check)
+
+    def test_window_selection_bar_and_countdown(self):
+        other = f"{REPO}#8"
+
+        def check(root, tree, buttons, wait_for):
+            app = root.app
+            wait_for("Thumbs up")
+            root.update()
+            self.assertRegex(app.poll_button.cget("text"), r"^Poll now · \d+[sm]$")
+            tree.selection_set(ROW)
+            root.update()
+            self.assertFalse(app.selection_bar.winfo_ismapped())  # one PR: the right-click menu has its actions
+            tree.selection_set([ROW, other])
+            root.update()
+            self.assertTrue(app.selection_bar.winfo_ismapped())
+            self.assertEqual(app.selected.cget("text"), "2 selected")
+            offered = {text for text, button in buttons.items() if button.master is app.selection_bar
+                       and button.winfo_ismapped()}  # with "": the button that clears the selection has no text
+            self.assertEqual(offered, {"Request Codex review", "Don't merge", "Update branch", "Merge now…", ""})
+
+        self.window(FakeGh(reactions=THUMBS, more=[{"number": 8}]), check)
 
 
 if __name__ == "__main__":
