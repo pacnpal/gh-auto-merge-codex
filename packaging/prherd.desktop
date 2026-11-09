@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=prherd
+Comment=Squash-merge the pull requests Codex has cleared
+Exec=prherd
+Icon=prherd
+Terminal=false
+Categories=Development;
+StartupWMClass=Prherd

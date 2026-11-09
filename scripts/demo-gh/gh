@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""A stand-in for the GitHub CLI that serves demo data, for screenshots.
+
+scripts/screenshots.sh puts this directory first on PATH, so prherd shows a
+populated window without touching GitHub. It answers only the calls prherd
+makes, accepts every write (comment, merge, label) without doing anything, and
+logs each call to $DEMO_GH_LOG so the script can tell when polling has settled.
+"""
+import hashlib
+import json
+import os
+import re
+import sys
+
+BOT = {"login": "chatgpt-codex-connector[bot]", "id": 199175422}
+PUSHED, AFTER = "2026-11-09T13:58:00Z", "2026-11-09T14:08:00Z"
+RECEIPT = ("<!-- codex-review-receipt:v1 -->\n\nCodex Review: Didn't find any major issues.\n\n"
+           "**Reviewed commit:** `{}`")
+
+# repo -> [(number, title, author, verdict, extra)]; verdict drives the reactions and comments served.
+REPOS = {
+    "octo-org/storefront": [
+        (214, "Checkout: remember the last shipping address", "mira-k", "thumb", {"queued": True}),
+        (213, "Lazy-load product images below the fold", "lee-park", "eyes", {}),
+        (211, "Bump actions/checkout from 4 to 5", "dependabot", "clean", {"queued": True}),
+        (208, "Cart badge counts bundles once", "sam-ortiz", "conflict", {}),
+    ],
+    "octo-org/api": [
+        (97, "Rate-limit the search endpoint per token", "lee-park", "none", {}),
+        (95, "Migrate sessions to Redis 8", "mira-k", "hold", {}),
+        (94, "Draft: OpenAPI 3.2 schema", "sam-ortiz", "none", {"draft": True}),
+    ],
+    "octo-org/docs": [
+        (41, "Document webhook retries", "mira-k", "thumb", {}),
+        (39, "Fix broken links in the quickstart", "dependabot", "failed", {}),
+    ],
+}
+
+
+def sha(repo, number):
+    """Stable across calls: the receipt has to name the same head the PR list does."""
+    return hashlib.sha1(f"{repo}#{number}".encode()).hexdigest()
+
+
+def find(repo, number):
+    return next(p for p in REPOS[repo] if p[0] == number)
+
+
+def pr_list(repo):
+    out = []
+    for number, title, author, verdict, extra in REPOS[repo]:
+        out.append({
+            "number": number, "title": title, "headRefOid": sha(repo, number), "baseRefName": "main",
+            "mergeable": "CONFLICTING" if verdict == "conflict" else "MERGEABLE",
+            "labels": [{"name": "do-not-merge"}] if verdict == "hold" else [],
+            "autoMergeRequest": {"enabledAt": AFTER} if extra.get("queued") else None,
+            "isDraft": bool(extra.get("draft")), "author": {"login": author},
+        })
+    return out
+
+
+def api(path):
+    m = re.match(r"repos/([^/]+/[^/]+)/(commits|issues)/([^/?]+)/([a-z-]+)", path)
+    if not m:
+        return None
+    repo, kind, ref, what = m.groups()
+    if what == "check-suites":
+        return [{"total_count": 1, "check_suites": [{"created_at": PUSHED}]}]
+    number = int(ref)
+    verdict = find(repo, number)[3]
+    if what == "timeline":
+        return [[]]
+    if what == "reactions":
+        if verdict == "failed":
+            sys.exit("HTTP 502: Bad Gateway (demo)")
+        content = {"thumb": "+1", "eyes": "eyes"}.get(verdict)
+        return [[{"user": BOT, "content": content, "created_at": AFTER}]] if content else [[]]
+    if what == "comments":
+        return [[{"user": BOT, "body": RECEIPT.format(sha(repo, number)[:10]), "created_at": AFTER}]] \
+            if verdict == "clean" else [[]]
+    return [[]]
+
+
+def main(args):
+    with open(os.environ.get("DEMO_GH_LOG", os.devnull), "a") as log:
+        log.write(" ".join(args) + "\n")
+    if args[:1] == ["--version"]:
+        return print("gh version 2.62.0 (demo)")
+    if args[:2] == ["repo", "view"]:
+        return print(f"https://github.com/{args[2]}")
+    if args[:2] == ["pr", "list"]:
+        repo = args[args.index("-R") + 1].split("/", 1)[1]
+        return print(json.dumps(pr_list(repo)))
+    if args[:1] == ["api"]:
+        path = next((a for a in args[1:] if a.startswith("repos/") or a == "user"), "")
+        if path == "user":
+            return print(json.dumps({"login": "demo", "id": 42}))
+        if "-X" in args:  # label writes
+            return print("{}")
+        data = api(path)
+        return print(json.dumps(data if data is not None else [[]]))
+    # pr comment, pr merge, label create, browse: accepted, no effect.
+    return None
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
