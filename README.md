@@ -193,7 +193,7 @@ it, or from GitHub's web UI. Removing the label makes the PR eligible again on t
 ## Check
 
 ```sh
-python3 -m unittest test_prherd test_release_notes
+python3 -m unittest test_prherd
 ```
 
 The screenshot above is taken by the Screenshots workflow, which runs the real window

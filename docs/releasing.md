@@ -60,7 +60,7 @@ warning. Pull request builds are never signed.
 | `APPLE_TEAM_ID` | The 10-character team ID |
 | `WINDOWS_CERTIFICATE_PFX` | A code-signing certificate as `.pfx`, base64-encoded (`[Convert]::ToBase64String([IO.File]::ReadAllBytes('cert.pfx'))`) |
 | `WINDOWS_CERTIFICATE_PASSWORD` | The `.pfx` password |
-| `OPENROUTER_API_KEY` | Optional. Lets a model write the release notes (below) |
+| `OPENROUTER_API_KEY` | Required. Lets a free model write the release notes (below) |
 
 The macOS certificate goes into a temporary keychain that's deleted when the job ends.
 The app is signed with the hardened runtime and `packaging/entitlements.plist`, then the
@@ -72,24 +72,20 @@ provider's signing action, such as Azure Trusted Signing.
 
 ## Release notes
 
-`scripts/release_notes.py` writes the title and notes from the full message of every
-commit since the previous `v*` tag. With `OPENROUTER_API_KEY` set, a free model on
-OpenRouter (the `openrouter/free` router) writes them in the same style as
-[mcpelevator's releases](https://github.com/pacnpal/mcpelevator/releases):
+[`pacnpal/free-ai-release-notes`](https://github.com/marketplace/actions/free-ai-release-notes)
+writes the title and notes from every commit since the previous `v*` tag (merge commits
+left out). It uses free OpenRouter models with `OPENROUTER_API_KEY`:
 
-- The title is `v1.2.0 - ` plus three to five of the biggest changes.
-- **Breaking changes come first**, grouped by version, each saying what changed, who it
-  affects and what to do instead. Earlier releases' breaking changes are carried along.
-- The version's own section opens with a short summary. Then come one section per
-  change with its pull request numbers, then Fixes, Security, Dependencies and upgrade
-  notes as they apply.
-- **Then the download table and the Full Changelog link**, followed by the previous
-  release's notes, so one page covers an upgrade across several versions.
+- The title is `v1.2.0 - ` plus a short summary of the release.
+- **Breaking changes come first.** Any commit marked `feat!:` or carrying a
+  `BREAKING CHANGE:` footer is always listed there, with what to do when upgrading.
+- Then come New Features, Bug Fixes, Performance, Documentation and Maintenance, as they
+  apply, and the Full Changelog link.
+- The workflow adds the download table under the notes.
 
-The model only sees the commits. A reply that cites a pull request number that no commit
-mentions is thrown away, as is one that doesn't follow the format. After three tries, or
-with no key, the notes list the commit subjects in the same layout. Check the notes on
-the release page after publishing, since a model wrote them.
+A release fails without the key. If every model fails, the notes fall back to GitHub's
+generated notes or a plain commit list, titled with the tag. Check the notes on the release page after
+publishing, since a model wrote them.
 
 Each pull request's run previews the notes its changes would get, in the **Preview
 release notes** job's summary.

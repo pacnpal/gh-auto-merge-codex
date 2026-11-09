@@ -1,8 +1,8 @@
 name: Release
 
 # Builds prherd for macOS, Windows and Linux, signs it, and publishes a GitHub
-# release. A free OpenRouter model writes the title and notes from every commit
-# since the last v* tag, in mcpelevator's release-note style (scripts/release_notes.py).
+# release. pacnpal/free-ai-release-notes has a free OpenRouter model write the title
+# and notes from every commit since the last v* tag.
 #
 # The version comes from whatever triggered the run:
 #   - pushing a tag v1.2.0          -> releases 1.2.0 from that tag
@@ -13,7 +13,7 @@ name: Release
 #
 # Secrets (see docs/releasing.md): MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD,
 # MACOS_SIGNING_IDENTITY, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID,
-# WINDOWS_CERTIFICATE_PFX, WINDOWS_CERTIFICATE_PASSWORD, OPENROUTER_API_KEY.
+# WINDOWS_CERTIFICATE_PFX, WINDOWS_CERTIFICATE_PASSWORD, OPENROUTER_API_KEY (required).
 # A release fails without the signing secrets unless the repository variable
 # ALLOW_UNSIGNED_RELEASES is 'true'. Pull request builds are always ad-hoc/unsigned.
 
@@ -31,7 +31,6 @@ on:
       - 'prherd.py'
       - 'assets/**'
       - 'packaging/**'
-      - 'scripts/release_notes.py'
       - 'test_*.py'
       - '.github/workflows/release.yml'
 
@@ -97,7 +96,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Run tests
-        run: python -m unittest -v test_prherd test_release_notes
+        run: python -m unittest -v test_prherd
 
   notes-preview:
     name: Preview release notes
@@ -117,13 +116,20 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Write title and notes
+        id: notes
+        uses: pacnpal/free-ai-release-notes@76e53c73233b9dfc37cb0aff5ed6359d139b4c7c # v1.0.0
+        with:
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          tag: v${{ needs.version.outputs.version }}
+          target: ${{ needs.version.outputs.target }}
+          tag-pattern: 'v[0-9]*'
+          title-template: '{tag} - {title}'
+          use-github-notes: false  # needs contents: write, which a pull request run doesn't get
+      - name: Show them in the run summary
         env:
-          GH_TOKEN: ${{ github.token }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |-
-          python3 scripts/release_notes.py --repo "$GITHUB_REPOSITORY" --tag "v$VERSION" --target "$TARGET" \
-            --version "$VERSION" --title-file "$RUNNER_TEMP/title.txt" --notes-file "$RUNNER_TEMP/notes.md"
-          { echo "# $(cat "$RUNNER_TEMP/title.txt")"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
+          TITLE: ${{ steps.notes.outputs.title }}
+          NOTES_FILE: ${{ steps.notes.outputs.notes-file }}
+        run: '{ echo "# $TITLE"; echo; cat "$NOTES_FILE"; } >> "$GITHUB_STEP_SUMMARY"'
 
   build:
     name: Build (${{ matrix.name }})
@@ -295,7 +301,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0  # the notes read commit subjects since the last release
+          fetch-depth: 0  # the notes read every commit since the last release
           persist-credentials: false
 
       - name: Download builds
@@ -309,20 +315,39 @@ jobs:
         run: cd out && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
 
       - name: Write title and notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: |-
-          python3 scripts/release_notes.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --target "$TARGET" \
-            --version "$VERSION" --title-file "$RUNNER_TEMP/title.txt" --notes-file "$RUNNER_TEMP/notes.md"
-          { echo "## $(cat "$RUNNER_TEMP/title.txt")"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
+        id: notes
+        uses: pacnpal/free-ai-release-notes@76e53c73233b9dfc37cb0aff5ed6359d139b4c7c # v1.0.0
+        with:
+          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
+          tag: ${{ needs.version.outputs.tag }}
+          target: ${{ needs.version.outputs.target }}
+          tag-pattern: 'v[0-9]*'
+          title-template: '{tag} - {title}'
 
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
+          TITLE: ${{ steps.notes.outputs.title }}
+          NOTES_FILE: ${{ steps.notes.outputs.notes-file }}
         run: |-
-          args=(--title "$(cat "$RUNNER_TEMP/title.txt")" --notes-file "$RUNNER_TEMP/notes.md")
+          # The generated notes, then which file is which.
+          { cat "$NOTES_FILE"; cat <<EOF
+
+          ## Download
+
+          | Platform | File |
+          | --- | --- |
+          | macOS (Apple silicon) | \`prherd-$VERSION-macos-arm64.dmg\` |
+          | Windows (x64) | \`prherd-$VERSION-windows-x64.zip\` |
+          | Linux (x64) | \`prherd-$VERSION-linux-x64.tar.gz\` |
+
+          prherd runs the [GitHub CLI](https://cli.github.com) (\`gh\` 2.48 or newer), signed in with merge
+          rights on the repos you watch. Checksums are in \`SHA256SUMS.txt\`.
+          EOF
+          } > "$RUNNER_TEMP/notes.md"
+          { echo "## $TITLE"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
+          args=(--title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md")
           [ "$PRERELEASE" = true ] && args+=(--prerelease)
           # A pushed tag already exists; a run by hand creates it at the commit it ran on.
           if [ "$EVENT" = push ]; then args+=(--verify-tag); else args+=(--target "$TARGET"); fi
