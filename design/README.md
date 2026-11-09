@@ -5,8 +5,9 @@ Source for the redesign mockups. The live, clickable version is the
 until it's shared from its Share menu).
 
 These files are Design Component pages (`.dc.html`) exported from that canvas.
-They load the canvas runtime (`support.js`), so they don't render on their own
-in a browser. `canvas.json` is the canvas layout. The plan for bringing the
+They load `./support.js`, the canvas's own runtime, which the canvas serves and
+which isn't part of this repo. So they don't render on their own in a browser:
+open them on the canvas to see them, or read them as markup. `canvas.json` is the canvas layout. The plan for bringing the
 design into the app is in [PLAN.md](PLAN.md).
 
 ## Artboards

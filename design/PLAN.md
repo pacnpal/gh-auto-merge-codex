@@ -55,15 +55,25 @@ Restyle what's there, with no layout changes yet.
 - A `VERDICTS` table mapping each internal verdict to its label and colors:
   Thumbs up, No major issues, Reviewing, Merge conflict, Lookup failed,
   Don't merge, Awaiting Codex. `row_values` shows the label.
+- **Guards read the raw verdict, not the cell.** `mergeable_now` and the
+  right-click menu compare `tree.set(iid, "codex")` against `"don't merge"`
+  and `"merge conflict"` today. Once the cell shows labels, that comparison
+  breaks: Allow merge would stay disabled on held PRs, and Merge now would be
+  offered for PRs it should skip. Keep each row's raw verdict in a dict next
+  to `prs` (filled in `drain`) and have the guards read that.
 - Appearance setting: `"appearance": "system" | "light" | "dark"` in
   `prherd.json`, validated in `load_settings` like `mode` is.
-  - **System detection:** on macOS, `::tk::unsupported::MacWindowStyle isdark`
-    (Tk 8.6.10+), falling back to `defaults read -g AppleInterfaceStyle`.
+  - **System detection:** on macOS,
+    `root.tk.call("::tk::unsupported::MacWindowStyle", "isdark", root._w)`
+    (Tk 8.6.10+; it needs the window argument), falling back to
+    `defaults read -g AppleInterfaceStyle`.
   - **Keeping up with system changes:** re-check on each tick and re-theme
     when it changes.
 - **Tests:**
   - **Updates:** `test_row_values` for the new labels. The window test waits
     on the label text instead of the raw verdict.
+  - **Guards:** a held PR still enables Allow merge and disables Don't merge,
+    and Merge now still skips held and conflicting PRs.
   - **New:** the appearance setting round-trips, and a bad value falls back to
     `system`.
 
