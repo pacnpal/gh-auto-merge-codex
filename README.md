@@ -54,20 +54,24 @@ work too).
 
 **Merge now** asks first, then squash-merges the selected PRs without waiting for
 Codex, even with Auto-merge unticked. It's limited to the commit shown, so GitHub
-refuses it if someone has pushed since. It skips PRs showing `don't merge` or
-`merge conflict`, and it uses `--admin` only when the window's mode is Admin.
+refuses it if someone has pushed since. It skips PRs showing Don't merge or
+Merge conflict, and it uses `--admin` only when the window's mode is Admin.
 Otherwise it behaves like Force, so branch protection still applies.
 
 **Update branch** merges the base branch into the PR. That's a new commit, so
 Codex's go-ahead no longer counts until it reviews again.
 - **Poll now**: poll immediately.
 
-The tree lists each repo's open PRs with their author and state (`draft`, or `queued` if auto-merge is on), and Codex's verdict on each: `👍`,
-`no major issues`, `👀` (Codex is reviewing), `merge conflict`, `don't merge`, `—` (none yet), or `?` (lookup failed). A newly added repo is
-shown right away. Merging starts on the next poll.
+The tree lists each repo's open PRs with their author and state (`draft`, or `queued` if auto-merge is on), and Codex's verdict on each:
+Thumbs up (a 👍 reaction), No major issues (a clean review comment), Reviewing (Codex reacted 👀), Merge conflict, Don't merge,
+Awaiting Codex (no verdict yet), or Lookup failed. A newly added repo is shown right away. Merging starts on the next poll.
 
-The window saves its repo list, merge mode, interval, Auto-merge setting, and
-size to `$XDG_CONFIG_HOME/prherd.json` (default
+The window follows the system's light or dark appearance, and switches within a poll interval when the
+system does. To pin it, set `"appearance"` to `"light"` or `"dark"` in the settings file below
+(`"system"` is the default).
+
+The window saves its repo list, merge mode, interval, Auto-merge setting,
+appearance, and size to `$XDG_CONFIG_HOME/prherd.json` (default
 `~/.config/prherd.json`) whenever one changes and when you close it,
 and restores them at the next launch. `repo` arguments are added to the saved
 list. `--force`, `--admin`, and `--interval` override the saved values. If the
