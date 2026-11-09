@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import pathlib
@@ -385,6 +386,20 @@ class Test(unittest.TestCase):
             r = ca.gh("hi")
         self.assertEqual(r.stdout, "hi\n")
         spawn.assert_called_once()
+
+    def test_gh_found_outside_path(self):  # opened from Finder, PATH lacks Homebrew
+        with mock.patch("shutil.which", return_value=None), \
+                mock.patch("os.access", side_effect=lambda p, _: p == "/usr/local/bin/gh"):
+            self.assertEqual(ca.find_gh(), "/usr/local/bin/gh")
+        with mock.patch("shutil.which", return_value=None), mock.patch("os.access", return_value=False):
+            self.assertEqual(ca.find_gh(), "gh")  # so the error names it
+        with mock.patch("shutil.which", return_value="bin/gh"):
+            self.assertEqual(ca.find_gh(), os.path.abspath("bin/gh"))  # PATH wins, made absolute
+
+    def test_version(self):
+        with self.assertRaises(SystemExit), mock.patch("sys.stdout", new_callable=io.StringIO) as out:
+            ca.parse(["--version"])
+        self.assertEqual(out.getvalue().strip(), f"prherd {ca.__version__}")
 
     def test_request_review_posts_comment(self):
         fake = FakeGh()

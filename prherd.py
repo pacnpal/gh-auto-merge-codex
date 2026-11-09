@@ -23,6 +23,8 @@ import sys
 import threading
 import time
 
+# The release workflow writes the version from its trigger here before building.
+__version__ = "0.0.0-dev"
 # chatgpt-codex-connector[bot]. Its numeric id, not its login: an id can't be renamed or reused.
 BOT_ID = int(os.environ.get("BOT_ID", "199175422"))
 # Only Codex's review receipt, from its first byte: a free-text Codex reply can't start with this.
@@ -37,14 +39,30 @@ DONT_MERGE = "do-not-merge"
 MODES = (("Queue (--auto)", ""), ("Force", "force"), ("Admin", "admin"))
 # The window's repos and controls, restored at launch.
 CONFIG = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "prherd.json")
+# Where Homebrew (Apple silicon, then Intel) and gh's installers put gh. An app opened from
+# Finder gets launchd's PATH, /usr/bin:/bin:/usr/sbin:/sbin, which has none of them.
+GH_FALLBACKS = ("/opt/homebrew/bin/gh", "/usr/local/bin/gh", r"C:\Program Files\GitHub CLI\gh.exe")
+# The packaged Windows app has no console, so each gh would flash one open without this.
+NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+# The window's icon: next to this file, or inside the bundle the release build makes.
+ICON = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets", "prherd.png")
+
+
+def find_gh():
+    """gh's absolute path: a relative PATH hit breaks under cwd. "gh" if it's nowhere, so the error names it."""
+    found = shutil.which("gh") or next((p for p in GH_FALLBACKS if os.access(p, os.X_OK)), None)
+    return os.path.abspath(found) if found else "gh"
+
+
 # A full path, no cwd and close_fds=False let subprocess use posix_spawn instead of fork: macOS libmalloc
 # prints "MallocStackLogging: can't turn off..." in every forked child of the Tk process.
-GH = os.path.abspath(found) if (found := shutil.which("gh")) else "gh"  # absolute: a relative PATH hit breaks under cwd
+GH = find_gh()
 
 
 def gh(*args, cwd=None):
     try:
-        return subprocess.run([GH, *args], cwd=cwd, capture_output=True, text=True, timeout=120, close_fds=cwd is not None)
+        return subprocess.run([GH, *args], cwd=cwd, capture_output=True, text=True, timeout=120,
+                              close_fds=cwd is not None, creationflags=NO_WINDOW)
     except subprocess.TimeoutExpired:  # a hung gh would stall every repo; fail like any gh error
         return subprocess.CompletedProcess(args, 1, "", "gh timed out after 120s")
 
@@ -304,6 +322,8 @@ def gui(targets, mode, interval):
     interval = interval or saved["interval"]
     root = tk.Tk()
     root.title("prherd")
+    if os.path.exists(ICON):  # run from source, Tk would show Python's icon in the Dock
+        root.iconphoto(True, tk.PhotoImage(file=ICON))
     if saved["geometry"]:
         root.geometry(saved["geometry"])
     events = queue.Queue()  # worker threads never touch tk; they post here
@@ -582,6 +602,7 @@ def parse(argv=None):
     p.add_argument("--interval", type=positive, help="seconds between polls (default 60)")
     p.add_argument("--headless", action="store_true",
                    help="no window; log to stdout (default repo: $REPO or the current directory)")
+    p.add_argument("--version", action="version", version=f"prherd {__version__}")
     return p.parse_args(argv)
 
 
