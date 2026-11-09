@@ -10,6 +10,7 @@ from unittest import mock
 import prherd as ca
 
 REPO = "github.com/octo/direct-repo"
+ROW = f"{REPO}#7"  # FakeGh's one PR, as a window row
 HEAD = "bfd4fae453adcbc45e6cc0a4034898a3002d97ea"
 BOT = {"login": "chatgpt-codex-connector[bot]", "id": 199175422}
 ME = {"login": "watcher", "id": 42}  # the account gh is logged in as
@@ -26,11 +27,13 @@ class FakeGh:
     """Stands in for `gh`; records every call."""
 
     def __init__(self, reactions=(), comments=(), fail=(), merge=(0, "✓ Squashed and merged pull request"),
-                 suites=(PUSHED,), timeline=(), mergeable="MERGEABLE", labels=(), late_labels=None, auto=None):
+                 suites=(PUSHED,), timeline=(), mergeable="MERGEABLE", labels=(), late_labels=None, auto=None,
+                 more=()):
         self.calls = []
         self.reactions, self.comments, self.fail, self.merge = reactions, comments, fail, merge
         self.suites, self.timeline, self.mergeable = suites, timeline, mergeable
         self.labels, self.auto = labels, auto
+        self.more = more  # further PRs after #7, each as {"number": n, ...fields that differ from #7}
         self.late_labels = labels if late_labels is None else late_labels  # as seen right before a merge
 
     def __call__(self, *args, cwd=None):
@@ -41,11 +44,10 @@ class FakeGh:
         if args[:2] == ("repo", "view"):
             return done(0, "https://github.example/acme/local-repo\n" if cwd else f"https://github.com/{args[2]}\n")
         if args[:2] == ("pr", "list"):
-            return done(0, json.dumps([{"number": 7, "title": "t", "headRefOid": HEAD,
-                                        "mergeable": self.mergeable, "baseRefName": "main",
-                                        "labels": [{"name": n} for n in self.labels],
-                                        "autoMergeRequest": self.auto, "isDraft": False,
-                                        "author": {"login": "octocat"}}]))
+            pr = {"number": 7, "title": "t", "headRefOid": HEAD, "mergeable": self.mergeable,
+                  "baseRefName": "main", "labels": [{"name": n} for n in self.labels],
+                  "autoMergeRequest": self.auto, "isDraft": False, "author": {"login": "octocat"}}
+            return done(0, json.dumps([pr, *(dict(pr, **more) for more in self.more)]))
         if args[:2] == ("pr", "view"):
             return done(0, json.dumps({"labels": [{"name": n} for n in self.late_labels]}))
         if args[:2] == ("api", "--hostname") and args[-1] == "user":
@@ -203,22 +205,24 @@ class Test(unittest.TestCase):
 
     def test_row_values(self):
         pr = {"isDraft": False, "autoMergeRequest": None, "author": {"login": "octocat"}}
-        self.assertEqual(ca.row_values(pr, None), ("—", "octocat", ""))
+        self.assertEqual(ca.row_values(pr, None), ("Awaiting Codex", "octocat", ""))
+        labels = {v: ca.row_values(pr, v)[0] for v in ("👍", "no major issues", "👀", "merge conflict", "?", "don't merge")}
+        self.assertEqual(labels, {"👍": "Thumbs up", "no major issues": "No major issues", "👀": "Reviewing",
+                                  "merge conflict": "Merge conflict", "?": "Lookup failed", "don't merge": "Don't merge"})
         self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={}), "👍")[2], "")  # gh's empty value: not queued
         self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "queued")
         self.assertEqual(ca.row_values(dict(pr, autoMergeRequest={"enabledAt": AFTER}), "don't merge")[2], "")
         self.assertEqual(ca.row_values(dict(pr, isDraft=True, autoMergeRequest={"enabledAt": AFTER}), "👍")[2], "draft")
         self.assertEqual(ca.row_values(dict(pr, author=None), "👍")[1], "")  # a deleted account
 
-    def test_window_marks_and_clears_without_merging(self):
+    def window(self, fake, check, interval=3600):
+        """Run the window against fake gh; check(root, tree, buttons, wait_for) drives it, then closes it."""
         try:
             import tkinter as tk
             from tkinter import ttk
             tk.Tk().destroy()
         except Exception as e:  # no tkinter, or tk.TclError with no display
             self.skipTest(f"no window available: {e}")
-        fake = StatefulGh(reactions=THUMBS, auto={"enabledAt": AFTER})
-        row = f"{REPO}#7"
 
         def drive(root, *_):  # stands in for mainloop, and pumps it
             def widgets(parent):
@@ -226,31 +230,124 @@ class Test(unittest.TestCase):
                 for child in parent.winfo_children():
                     yield from widgets(child)
 
-            def wait_for(verdict):
+            def wait_for(label):
                 deadline = time.time() + 10
-                while not (tree.exists(row) and tree.set(row, "codex") == verdict):
-                    self.assertLess(time.time(), deadline, f"row never showed {verdict}")
+                while not (tree.exists(ROW) and tree.set(ROW, "codex") == label):
+                    self.assertLess(time.time(), deadline, f"row never showed {label}")
                     root.update()
                     time.sleep(0.01)
 
             found = list(widgets(root))
             tree = next(w for w in found if isinstance(w, ttk.Treeview))
             buttons = {w.cget("text"): w for w in found if isinstance(w, ttk.Button)}
-            wait_for("👍")
-            tree.selection_set(row)
-            buttons["Don't merge"].invoke()
-            wait_for("don't merge")  # refreshed right away, with no tick: the interval is an hour
-            self.assertIsNone(fake.auto)
-            buttons["Allow merge"].invoke()
-            wait_for("👍")
+            check(root, tree, buttons, wait_for)
+            for pending in root.tk.call("after", "info"):  # else drain fires in the next test's window, and fails
+                root.after_cancel(pending)
             root.destroy()
 
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"), \
                 mock.patch.object(ca, "gh", fake), mock.patch.object(tk.Misc, "mainloop", drive):
-            ca.gui(["octo/direct-repo"], None, 3600)
+            ca.gui(["octo/direct-repo"], None, interval)
+
+    def menu_for(self, root, tree):
+        """Right-click the PR row; return the menu that opened and its entries' states by label."""
+        import tkinter as tk
+        root.update()
+        x, y, _, height = tree.bbox(ROW)
+        with mock.patch.object(tk.Menu, "tk_popup", autospec=True) as popup:  # a real popup is modal on macOS
+            tree.event_generate("<Button-3>", x=x + 5, y=y + height // 2)
+        menu = popup.call_args.args[0]
+        states = {menu.entrycget(i, "label"): menu.entrycget(i, "state")
+                  for i in range(menu.index("end") + 1) if menu.type(i) == "command"}
+        return menu, states
+
+    def test_window_marks_and_clears_without_merging(self):
+        fake = StatefulGh(reactions=THUMBS, auto={"enabledAt": AFTER})
+
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            tree.selection_set(ROW)
+            buttons["Don't merge"].invoke()
+            wait_for("Don't merge")  # refreshed right away, with no tick: the interval is an hour
+            self.assertIsNone(fake.auto)
+            buttons["Allow merge"].invoke()
+            wait_for("Thumbs up")
+
+        self.window(fake, check)
         # Cancelling the queued auto-merge is the only `gh pr merge`: neither refresh started one.
         self.assertEqual(fake.merges(), [("pr", "merge", "7", "-R", REPO, "--disable-auto")])
         self.assertEqual(fake.labels, [])
+
+    def test_menu_guards_read_the_verdict_not_the_label(self):
+        # A held PR: Allow merge on, Don't merge and Merge now off.
+        def held(root, tree, buttons, wait_for):
+            wait_for("Don't merge")
+            _, states = self.menu_for(root, tree)
+            self.assertEqual((states["Allow merge"], states["Don't merge"], states["Merge now…"]),
+                             ("normal", "disabled", "disabled"))
+
+        self.window(FakeGh(reactions=THUMBS, labels=["do-not-merge"]), held)
+
+        def conflicting(root, tree, buttons, wait_for):
+            wait_for("Merge conflict")
+            _, states = self.menu_for(root, tree)
+            self.assertEqual((states["Merge now…"], states["Allow merge"]), ("disabled", "disabled"))
+
+        self.window(FakeGh(mergeable="CONFLICTING"), conflicting)
+
+    def test_merge_now_skips_held_and_conflicting_prs(self):
+        held = {"number": 8, "labels": [{"name": "do-not-merge"}]}
+        fake = FakeGh(reactions=THUMBS, more=[held, {"number": 9, "mergeable": "CONFLICTING"}])
+        asked = []
+
+        def check(root, tree, buttons, wait_for):
+            wait_for("Thumbs up")
+            self.assertEqual([tree.set(f"{REPO}#{n}", "codex") for n in (8, 9)], ["Don't merge", "Merge conflict"])
+            tree.selection_set([f"{REPO}#{n}" for n in (7, 8, 9)])
+            menu, states = self.menu_for(root, tree)
+            self.assertEqual(states["Merge now…"], "normal")
+            with mock.patch("tkinter.messagebox.askyesno", side_effect=lambda *a, **k: asked.append(a[1])):
+                menu.invoke("Merge now…")
+
+        self.window(fake, check)
+        [question] = asked
+        self.assertIn("#7 t (Thumbs up)", question)
+        self.assertNotIn("#8", question)
+        self.assertNotIn("#9", question)
+        self.assertEqual(fake.merges(), [])  # declined
+
+    def test_window_follows_system_appearance(self):
+        # Re-checked on each tick; the window is re-themed only when it changes.
+        system = iter([False, False, True])
+        themed = []
+
+        def check(root, tree, buttons, wait_for):
+            deadline = time.time() + 10
+            while len(themed) < 2:
+                self.assertLess(time.time(), deadline, "never re-themed")
+                root.update()
+                time.sleep(0.01)
+
+        with mock.patch.object(ca, "system_dark", lambda root: next(system, True)), \
+                mock.patch.object(ca, "theme", side_effect=lambda root, dark, appearance: themed.append(dark)):
+            self.window(FakeGh(), check, interval=1)
+        self.assertEqual(themed, [False, True])
+
+    def test_system_dark_falls_back_to_defaults(self):
+        from tkinter import TclError
+
+        class Root:  # a Tk older than 8.6.10, which has no isdark
+            _w = "."
+            update_idletasks = lambda self: None
+            tk = mock.Mock(call=mock.Mock(side_effect=TclError("bad option")))
+
+        for out, dark in (("Dark\n", True), ("", False)):
+            with mock.patch.object(ca.sys, "platform", "darwin"), \
+                    mock.patch("subprocess.run", return_value=subprocess.CompletedProcess([], 0, out, "")):
+                self.assertIs(ca.system_dark(Root()), dark)
+        with mock.patch.object(ca.sys, "platform", "linux"), mock.patch("subprocess.run") as run:
+            self.assertFalse(ca.system_dark(Root()))
+        run.assert_not_called()
 
     def test_merge_mode_is_asked_at_merge_time(self):
         # GUI: repo removed or Auto-merge unticked while this poll was running.
@@ -403,16 +500,22 @@ class Test(unittest.TestCase):
     def test_settings_round_trip(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/sub/s.json"):
             self.assertEqual(ca.load_settings(), {"repos": [], "mode": "", "interval": 60,
-                                                  "merging": True, "geometry": None})
-            saved = {"repos": [REPO], "mode": "admin", "interval": 5, "merging": False, "geometry": "800x600+0+0"}
+                                                  "merging": True, "geometry": None, "appearance": "system"})
+            saved = {"repos": [REPO], "mode": "admin", "interval": 5, "merging": False, "geometry": "800x600+0+0",
+                     "appearance": "dark"}
             ca.save_settings(saved)
             self.assertEqual(ca.load_settings(), saved)
 
     def test_bad_settings_are_not_trusted_or_overwritten(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.object(ca, "CONFIG", f"{d}/s.json"):
-            pathlib.Path(ca.CONFIG).write_text('{"mode": "foo", "interval": 0, "repos": [1, "a/b"], "merging": "no"}')
+            pathlib.Path(ca.CONFIG).write_text('{"mode": "foo", "interval": 0, "repos": [1, "a/b"], "merging": "no", '
+                                               '"appearance": "blue"}')
             s = ca.load_settings()
             self.assertEqual((s["mode"], s["interval"], s["repos"]), ("", 60, ["a/b"]))  # "foo" would force-merge
+            self.assertEqual(s["appearance"], "system")
+            for bad in ("Dark", 1, None, ["dark"]):
+                pathlib.Path(ca.CONFIG).write_text(json.dumps({"appearance": bad}))
+                self.assertEqual(ca.load_settings()["appearance"], "system")
             pathlib.Path(ca.CONFIG).write_text("{oops")
             with self.assertRaises(SystemExit):
                 ca.load_settings()

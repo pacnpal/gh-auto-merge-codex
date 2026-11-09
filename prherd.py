@@ -265,13 +265,14 @@ def load_settings():
         "interval": interval if type(interval) is int and interval > 0 else 60,
         "merging": s.get("merging") is not False,
         "geometry": geometry if isinstance(geometry, str) else None,
+        "appearance": s.get("appearance") if s.get("appearance") in APPEARANCES else "system",
     }
 
 
 def row_values(pr, v):
     """The tree's columns for a PR. A marked PR's auto-merge is cancelled during the poll, so it isn't "queued"."""
     state = "draft" if pr["isDraft"] else "queued" if pr["autoMergeRequest"] and v != "don't merge" else ""
-    return v or "—", (pr["author"] or {}).get("login", ""), state
+    return VERDICTS[v]["label"], (pr["author"] or {}).get("login", ""), state
 
 
 def save_settings(settings):
@@ -284,6 +285,141 @@ def save_settings(settings):
 
 def stamp(msg):
     return f"{time.strftime('%F %T')} {msg}"
+
+
+APPEARANCES = ("system", "light", "dark")
+# The solid color tokens from design/Main.dc.html. Tk has no alpha, so the rgba ones are left out.
+PALETTE = {
+    "light": {"page": "#E7E7EB", "win": "#FFFFFF", "win-border": "#D9D9DF", "bar": "#FBFBFC", "line": "#E4E4E9",
+              "line-mid": "#ECECF0", "line-soft": "#F0F0F3", "side": "#F6F6F8", "hover": "#F1F1F4",
+              "side-hover": "#E6E6EA", "side-on": "#E4E4EA", "seg": "#EEEEF2", "seg-on": "#FFFFFF", "field": "#FFFFFF",
+              "field-border": "#DEDEE4", "text": "#17181C", "text-2": "#2A2D35", "text-3": "#3D414C", "muted": "#5A5F6B",
+              "faint": "#9A9EA8", "head": "#FAFAFB", "row-hover": "#FAFAFB", "chk": "#F7F7FA", "chip-border": "#E8E8ED",
+              "knob-off": "#8B8F99", "inv": "#17181C", "inv-fg": "#FFFFFF", "inv-muted": "#C9CAD1", "avatar": "#3F3F46",
+              "link": "#4338CA", "ok-fg": "#1D6B36", "ok-bg": "#E5F4EA", "ok-dot": "#1F9D55", "warn-fg": "#7A4F00",
+              "warn-bg": "#FFF1CC", "warn-dot": "#D69E2E", "bad-fg": "#A3191F", "bad-bg": "#FDE7E7", "bad-dot": "#D64545",
+              "err-fg": "#8F3A00", "err-bg": "#FFE9D9", "err-dot": "#DD6B20", "hold-fg": "#3A4150", "hold-bg": "#ECEEF2",
+              "none-fg": "#4F5563", "none-bg": "#F3F3F6", "acc-fg": "#3730A3", "acc-bg": "#EEF0FF", "acc-dot": "#4F46E5",
+              "open-dot": "#9A9EA8", "draft-dot": "#C4C6CC", "admin-bg": "#FFF4E5", "admin-line": "#F5D9AE",
+              "admin-fg": "#7A4100"},
+    "dark": {"page": "#0B0B0E", "win": "#16171B", "win-border": "#2C2D33", "bar": "#1B1C21", "line": "#2A2B31",
+             "line-mid": "#25262C", "line-soft": "#202127", "side": "#131418", "hover": "#23242A",
+             "side-hover": "#212228", "side-on": "#2A2B33", "seg": "#0F1013", "seg-on": "#2E2F37", "field": "#111215",
+             "field-border": "#33343C", "text": "#ECEDF0", "text-2": "#D3D5DB", "text-3": "#B4B7C0", "muted": "#959AA5",
+             "faint": "#5F636D", "head": "#191A1F", "row-hover": "#1C1D22", "chk": "#1D1E25", "chip-border": "#2A2B31",
+             "knob-off": "#666B77", "inv": "#ECEDF0", "inv-fg": "#16171B", "inv-muted": "#4F5563", "avatar": "#4A4B55",
+             "link": "#A5A8FF", "ok-fg": "#7BD9A4", "ok-bg": "#15301F", "ok-dot": "#3FBF77", "warn-fg": "#F2C462",
+             "warn-bg": "#33280F", "warn-dot": "#E0A93A", "bad-fg": "#FF9494", "bad-bg": "#3A1A1C", "bad-dot": "#F06363",
+             "err-fg": "#FFB27A", "err-bg": "#3A2312", "err-dot": "#F08A3E", "hold-fg": "#C3C7D1", "hold-bg": "#262830",
+             "none-fg": "#A9ADB8", "none-bg": "#202127", "acc-fg": "#B4B6FF", "acc-bg": "#23244A", "acc-dot": "#7C77FF",
+             "open-dot": "#6B6F79", "draft-dot": "#4A4C55", "admin-bg": "#2E2210", "admin-line": "#4A3615",
+             "admin-fg": "#F2C462"},
+}
+# What the window shows for each verdict poll() returns. tone picks the PALETTE colors: f"{tone}-fg", -bg and -dot.
+VERDICTS = {
+    "👍": {"label": "Thumbs up", "tone": "ok"},
+    "no major issues": {"label": "No major issues", "tone": "ok"},
+    "👀": {"label": "Reviewing", "tone": "warn"},
+    "merge conflict": {"label": "Merge conflict", "tone": "bad"},
+    "?": {"label": "Lookup failed", "tone": "err"},
+    "don't merge": {"label": "Don't merge", "tone": "hold"},
+    None: {"label": "Awaiting Codex", "tone": "none"},
+}
+
+
+def system_dark(root):
+    """Whether macOS is in dark mode. Always False elsewhere."""
+    from tkinter import TclError
+    root.update_idletasks()  # Tk can't read a window's appearance before it exists
+    try:  # Tk 8.6.10+; reports the window's appearance, which follows the system while it's "auto"
+        return bool(int(root.tk.call("::tk::unsupported::MacWindowStyle", "isdark", root._w)))
+    except (TclError, ValueError):
+        pass
+    if sys.platform != "darwin":
+        return False
+    try:  # the key only exists in dark mode
+        r = subprocess.run(["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"],
+                           capture_output=True, text=True, timeout=5, close_fds=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return r.stdout.strip() == "Dark"
+
+
+def theme(root, dark, appearance="system"):
+    """Restyle every widget under root in the light or dark palette, on ttk's clam theme."""
+    import tkinter as tk
+    from tkinter import font, ttk
+    p = PALETTE["dark" if dark else "light"]
+    root.update_idletasks()  # Tk can't set a window's appearance before it exists
+    try:  # the title bar, native menus and dialogs; "auto" keeps following the system
+        root.tk.call("::tk::unsupported::MacWindowStyle", "appearance", root._w,
+                     {"light": "aqua", "dark": "darkaqua"}.get(appearance, "auto"))
+    except tk.TclError:
+        pass
+    root.configure(background=p["win"])
+    s = ttk.Style(root)
+    s.theme_use("clam")  # the one built-in theme whose colors ttk.Style can fully set
+    flat = {"bordercolor": p["field-border"], "lightcolor": p["field"], "darkcolor": p["field"]}
+    s.configure(".", background=p["win"], foreground=p["text"], fieldbackground=p["field"],
+                troughcolor=p["seg"], selectbackground=p["acc-bg"], selectforeground=p["acc-fg"],
+                insertcolor=p["text"], focuscolor=p["acc-dot"], **flat)
+    s.map(".", foreground=[("disabled", p["faint"])])
+    s.configure("TFrame", background=p["win"])
+    s.configure("TLabel", background=p["win"], foreground=p["text"])
+    s.configure("TSeparator", background=p["line"])
+    focus = [("focus", p["acc-dot"])]
+    for field in ("TEntry", "TSpinbox"):
+        s.configure(field, fieldbackground=p["field"], foreground=p["text"], background=p["field"],
+                    arrowcolor=p["muted"], padding=4, **flat)
+        s.map(field, bordercolor=focus, lightcolor=focus, arrowcolor=[("active", p["text"])])
+    # width 0: as wide as the text, as aqua's are, rather than clam's 11-character minimum
+    s.configure("TButton", background=p["field"], foreground=p["text"], padding=(10, 4), width=0, **flat)
+    s.map("TButton", background=[("pressed", p["side-on"]), ("active", p["hover"])],
+          bordercolor=focus, foreground=[("disabled", p["faint"])])
+    # The design's primary button is ink on paper: near-black in light, near-white in dark.
+    ink = {"bordercolor": p["inv"], "lightcolor": p["inv"], "darkcolor": p["inv"]}
+    s.configure("Primary.TButton", background=p["inv"], foreground=p["inv-fg"], **ink)
+    s.map("Primary.TButton", background=[("pressed", p["text-3"]), ("active", p["text-2"])],
+          lightcolor=[("active", p["text-2"])], darkcolor=[("active", p["text-2"])],
+          bordercolor=[("active", p["text-2"])])
+    # Radiobuttons drawn as one segmented control: the chosen segment lifts out of the track.
+    seg = {"bordercolor": p["seg"], "lightcolor": p["seg"], "darkcolor": p["seg"]}
+    s.configure("Toolbutton", background=p["seg"], foreground=p["muted"], padding=(10, 4), relief="flat", **seg)
+    s.map("Toolbutton", background=[("selected", p["seg-on"]), ("active", p["hover"])],
+          foreground=[("selected", p["text"]), ("active", p["text"])],
+          bordercolor=[("selected", p["field-border"])],
+          lightcolor=[("selected", p["seg-on"])], darkcolor=[("selected", p["seg-on"])])
+    for check in ("TCheckbutton", "TRadiobutton"):
+        s.configure(check, background=p["win"], foreground=p["text"], indicatorbackground=p["field"],
+                    indicatorforeground=p["inv-fg"], upperbordercolor=p["field-border"],
+                    lowerbordercolor=p["field-border"], indicatorsize=14, indicatormargin=(0, 0, 6, 0))
+        s.map(check, background=[("active", p["win"])],
+              indicatorbackground=[("selected", p["inv"]), ("pressed", p["hover"])])
+    rows = font.nametofont("TkDefaultFont").metrics("linespace") + 12
+    s.configure("Treeview", background=p["win"], fieldbackground=p["win"], foreground=p["text"],
+                bordercolor=p["line"], lightcolor=p["win"], darkcolor=p["win"], rowheight=rows)
+    s.map("Treeview", background=[("selected", p["acc-bg"])], foreground=[("selected", p["acc-fg"])])
+    s.configure("Treeview.Heading", background=p["head"], foreground=p["muted"], relief="flat",
+                bordercolor=p["line"], lightcolor=p["head"], darkcolor=p["head"], padding=(6, 4))
+    s.map("Treeview.Heading", background=[("active", p["hover"])])
+    for bar in ("Vertical.TScrollbar", "Horizontal.TScrollbar"):
+        s.configure(bar, background=p["seg"], troughcolor=p["win"], arrowcolor=p["muted"],
+                    bordercolor=p["win"], lightcolor=p["seg"], darkcolor=p["seg"])
+        s.map(bar, background=[("active", p["side-on"])])
+
+    def plain(widget):  # tk widgets ttk.Style doesn't reach
+        if isinstance(widget, tk.Menu):
+            widget.configure(background=p["win"], foreground=p["text"], activebackground=p["acc-dot"],
+                             activeforeground="#FFFFFF", disabledforeground=p["faint"])
+        elif isinstance(widget, tk.Text):
+            widget.configure(background=p["field"], foreground=p["text"], insertbackground=p["text"],
+                             selectbackground=p["acc-bg"], selectforeground=p["acc-fg"],
+                             highlightthickness=1, highlightbackground=p["line"], highlightcolor=p["line"],
+                             borderwidth=0, padx=6, pady=4)
+        for child in widget.winfo_children():
+            plain(child)
+
+    plain(root)
 
 
 def watch(repos, mode, interval):
@@ -309,6 +445,9 @@ def gui(targets, mode, interval):
     events = queue.Queue()  # worker threads never touch tk; they post here
     repos = []
     prs = {}  # tree row -> its PR as of the last poll
+    verdicts = {}  # tree row -> its verdict as poll() returned it; the cell shows a label, so guards read this
+    appearance = saved["appearance"]
+    dark = None  # the palette in use; None until the first theme()
     busy = False
     mode_var = tk.StringVar(value=mode)
     interval_var = tk.IntVar(value=interval)
@@ -330,7 +469,7 @@ def gui(targets, mode, interval):
             seconds = interval
         try:
             save_settings({"repos": repos, "mode": mode_var.get(), "interval": seconds,
-                           "merging": merging.get(), "geometry": root.geometry()})
+                           "merging": merging.get(), "geometry": root.geometry(), "appearance": appearance})
         except OSError as e:
             log(f"can't save settings to {CONFIG}: {e}")
 
@@ -395,7 +534,7 @@ def gui(targets, mode, interval):
         act_on(selected_prs(), lambda repo, number: mark(repo, number, dont))
 
     def mergeable_now():
-        return [iid for iid in selected_prs() if tree.set(iid, "codex") not in ("don't merge", "merge conflict")]
+        return [iid for iid in selected_prs() if verdicts.get(iid) not in ("don't merge", "merge conflict")]
 
     def merge_now():
         # The PRs as shown when asked, so a push after that makes GitHub refuse (--match-head-commit).
@@ -435,7 +574,16 @@ def gui(targets, mode, interval):
             busy = True
             bg(poll_all, list(repos))
 
+    def retheme():
+        """Theme the window, again whenever the system appearance has changed since."""
+        nonlocal dark
+        now = appearance == "dark" or appearance == "system" and system_dark(root)
+        if now != dark:
+            dark = now
+            theme(root, dark, appearance)
+
     def tick():
+        retheme()
         poll_now()
         try:
             seconds = max(1, interval_var.get())
@@ -461,10 +609,14 @@ def gui(targets, mode, interval):
             elif kind == "prs" and rest[1] is not None and tree.exists(rest[0]):
                 repo, rows = rest
                 selected = tree.selection()
+                for iid in tree.get_children(repo):
+                    prs.pop(iid, None)
+                    verdicts.pop(iid, None)
                 tree.delete(*tree.get_children(repo))
                 for pr, v in rows:
                     iid = f"{repo}#{pr['number']}"
                     prs[iid] = pr
+                    verdicts[iid] = v
                     tree.insert(repo, "end", iid=iid, text=f"#{pr['number']} {pr['title']}", values=row_values(pr, v))
                 tree.selection_set([i for i in selected if tree.exists(i)])
             elif kind == "done":
@@ -474,13 +626,13 @@ def gui(targets, mode, interval):
     bar = ttk.Frame(root, padding=6)
     bar.pack(fill="x")
     entry = ttk.Entry(bar, width=36)
-    entry.pack(side="left")
+    entry.pack(side="left", padx=(0, 6))
     entry.bind("<Return>", add)
-    ttk.Button(bar, text="Add repo", command=add).pack(side="left")
-    ttk.Button(bar, text="Remove repo", command=remove).pack(side="left")
+    ttk.Button(bar, text="Add repo", command=add).pack(side="left", padx=(0, 6))
+    ttk.Button(bar, text="Remove repo", command=remove).pack(side="left", padx=(0, 6))
     ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
     for label, value in MODES:
-        ttk.Radiobutton(bar, text=label, variable=mode_var, value=value,
+        ttk.Radiobutton(bar, text=label, variable=mode_var, value=value, style="Toolbutton",
                         command=lambda: control(mode=mode_var.get())).pack(side="left")
     ttk.Label(bar, text="  every").pack(side="left")
     ttk.Spinbox(bar, from_=1, to=86400, width=6, textvariable=interval_var).pack(side="left")
@@ -501,10 +653,10 @@ def gui(targets, mode, interval):
 
     actions = ttk.Frame(root, padding=6)
     actions.pack(fill="x")
-    ttk.Button(actions, text="Request Codex review", command=ask_codex).pack(side="left")
-    ttk.Button(actions, text="Don't merge", command=lambda: set_dont_merge(True)).pack(side="left")
-    ttk.Button(actions, text="Allow merge", command=lambda: set_dont_merge(False)).pack(side="left")
-    ttk.Button(actions, text="Poll now", command=poll_now).pack(side="left")
+    ttk.Button(actions, text="Request Codex review", command=ask_codex).pack(side="left", padx=(0, 6))
+    ttk.Button(actions, text="Don't merge", command=lambda: set_dont_merge(True)).pack(side="left", padx=(0, 6))
+    ttk.Button(actions, text="Allow merge", command=lambda: set_dont_merge(False)).pack(side="left", padx=(0, 6))
+    ttk.Button(actions, text="Poll now", command=poll_now, style="Primary.TButton").pack(side="left", padx=(0, 6))
 
     pr_menu = tk.Menu(root, tearoff=False)
     pr_menu.add_command(label="Open in browser", command=open_selected)
@@ -533,7 +685,7 @@ def gui(targets, mode, interval):
         if "#" not in row:
             repo_menu.tk_popup(event.x_root, event.y_root)
             return "break"
-        marked = [tree.set(iid, "codex") == "don't merge" for iid in selected_prs()]
+        marked = [verdicts.get(iid) == "don't merge" for iid in selected_prs()]
         pr_menu.entryconfigure("Merge now…", state="normal" if mergeable_now() else "disabled")
         pr_menu.entryconfigure("Don't merge", state="disabled" if all(marked) else "normal")
         pr_menu.entryconfigure("Allow merge", state="normal" if any(marked) else "disabled")
@@ -559,6 +711,7 @@ def gui(targets, mode, interval):
     for target in targets:
         bg(add_repo, target)
     root.protocol("WM_DELETE_WINDOW", close)
+    retheme()
     drain()
     root.after(interval * 1000, tick)
     root.mainloop()
