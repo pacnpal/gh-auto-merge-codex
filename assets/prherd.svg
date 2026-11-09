@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>prherd</title>
+  <defs>
+    <!-- Tile: indigo, a touch lighter at the top. -->
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6E6BF8"/>
+      <stop offset="1" stop-color="#4135C8"/>
+    </linearGradient>
+    <!-- A soft sheen on the upper half, the way macOS icons catch light. -->
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.14"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <!-- In user space: a flat line has a zero-height box, which an objectBoundingBox gradient can't paint. -->
+    <linearGradient id="ink" gradientUnits="userSpaceOnUse" x1="0" y1="290" x2="0" y2="740">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E4E3FF"/>
+    </linearGradient>
+    <filter id="drop" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="14"/>
+      <feOffset dy="12" result="blur"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.32"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dy="6"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.28"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <!-- macOS icon grid: an 824px tile centered on the 1024px canvas. -->
+  <g filter="url(#drop)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#sheen)"/>
+    <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+
+  <!-- Three pull requests herded into one branch. -->
+  <g filter="url(#lift)">
+    <g fill="none" stroke="url(#ink)" stroke-width="40" stroke-linecap="round">
+      <path d="M314 352 C 478 352, 498 512, 658 512"/>
+      <path d="M314 512 H 658"/>
+      <path d="M314 672 C 478 672, 498 512, 658 512"/>
+    </g>
+    <circle cx="314" cy="352" r="54" fill="url(#ink)"/>
+    <circle cx="314" cy="512" r="54" fill="url(#ink)"/>
+    <circle cx="314" cy="672" r="54" fill="url(#ink)"/>
+    <circle cx="668" cy="512" r="96" fill="url(#ink)"/>
+    <circle cx="668" cy="512" r="44" fill="#4A3FD6"/>
+  </g>
+</svg>

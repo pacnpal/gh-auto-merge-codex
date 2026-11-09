@@ -1,0 +1,329 @@
+name: Release
+
+# Builds prherd for macOS, Windows and Linux, signs it, and publishes a GitHub
+# release. A free OpenRouter model writes the title and notes from every commit
+# since the last v* tag, in mcpelevator's release-note style (scripts/release_notes.py).
+#
+# The version comes from whatever triggered the run:
+#   - pushing a tag v1.2.0          -> releases 1.2.0 from that tag
+#   - running it by hand            -> releases the version you type (tags v<version>)
+#   - a pull request touching the build -> builds 0.0.0-pr.<number>+<sha> and
+#     uploads it as a workflow artifact, with no release
+# A version with a -suffix (1.3.0-rc.1) is published as a prerelease.
+#
+# Secrets (see docs/releasing.md): MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD,
+# MACOS_SIGNING_IDENTITY, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID,
+# WINDOWS_CERTIFICATE_PFX, WINDOWS_CERTIFICATE_PASSWORD, OPENROUTER_API_KEY.
+# A release fails without the signing secrets unless the repository variable
+# ALLOW_UNSIGNED_RELEASES is 'true'. Pull request builds are always ad-hoc/unsigned.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, like 1.2.0 or 1.3.0-rc.1 (tagged v<version>)
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - 'prherd.py'
+      - 'assets/**'
+      - 'packaging/**'
+      - 'scripts/release_notes.py'
+      - 'test_*.py'
+      - '.github/workflows/release.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Work out the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      release: ${{ steps.v.outputs.release }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      target: ${{ steps.v.outputs.target }}
+    steps:
+      - name: Version from the trigger
+        id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |-
+          case "$EVENT" in
+            push)              version="${REF_NAME#v}"; release=true;  target="$GITHUB_SHA" ;;
+            workflow_dispatch) version="${INPUT_VERSION#v}"; release=true; target="$GITHUB_SHA" ;;
+            pull_request)      version="0.0.0-pr.${PR_NUMBER}+${PR_SHA::7}"; release=false; target="$PR_SHA" ;;
+            *) echo "::error::unexpected trigger $EVENT"; exit 1 ;;
+          esac
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$version' isn't a version like 1.2.0 or 1.3.0-rc.1"; exit 1
+          fi
+          tag="v$version"
+          if [ "$EVENT" = workflow_dispatch ] && gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag already exists; push it to release it, or pick a new version"; exit 1
+          fi
+          prerelease=false; [[ "$version" == *-* ]] && prerelease=true
+          {
+            echo "version=$version"; echo "tag=$tag"; echo "release=$release"
+            echo "prerelease=$prerelease"; echo "target=$target"
+          } >> "$GITHUB_OUTPUT"
+          echo "### prherd $version" >> "$GITHUB_STEP_SUMMARY"
+          echo "release: $release · prerelease: $prerelease · target: \`$target\`" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - name: Run tests
+        run: python -m unittest -v test_prherd test_release_notes
+
+  notes-preview:
+    name: Preview release notes
+    # A pull request shows the notes its merge would get, in the run summary. Only for
+    # branches in this repo: a fork's run has no OPENROUTER_API_KEY.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TARGET: ${{ needs.version.outputs.target }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.version.outputs.target }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Write title and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |-
+          python3 scripts/release_notes.py --repo "$GITHUB_REPOSITORY" --tag "v$VERSION" --target "$TARGET" \
+            --version "$VERSION" --title-file "$RUNNER_TEMP/title.txt" --notes-file "$RUNNER_TEMP/notes.md"
+          { echo "# $(cat "$RUNNER_TEMP/title.txt")"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build (${{ matrix.name }})
+    needs: [version, test]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-latest, name: macos-arm64 }
+          - { os: windows-latest, name: windows-x64 }
+          # The oldest supported Ubuntu, so the bundled glibc runs on older distros too.
+          - { os: ubuntu-22.04, name: linux-x64 }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RELEASE: ${{ needs.version.outputs.release }}
+      ALLOW_UNSIGNED: ${{ vars.ALLOW_UNSIGNED_RELEASES }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: packaging/requirements.txt
+
+      - name: Check Tk is available
+        run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
+
+      - name: Install build tools
+        run: python -m pip install -r packaging/requirements.txt
+
+      - name: Build
+        run: python packaging/build.py --version "$VERSION" --build-number "$GITHUB_RUN_NUMBER"
+
+      # ---- macOS: sign, notarize, DMG ------------------------------------------------
+      - name: Sign, notarize and package (macOS)
+        if: runner.os == 'macOS'
+        env:
+          P12: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |-
+          app=dist/prherd.app
+          dmg="out/prherd-${VERSION}-macos-arm64.dmg"
+          mkdir -p out
+          signed=false; notarize=false
+          if [ "$RELEASE" = true ] && [ -n "$P12" ] && [ -n "$IDENTITY" ]; then
+            signed=true
+            [ -n "$APPLE_ID" ] && [ -n "$APPLE_PASSWORD" ] && [ -n "$APPLE_TEAM_ID" ] && notarize=true
+          fi
+          if [ "$RELEASE" = true ] && [ "$notarize" != true ] && [ "$ALLOW_UNSIGNED" != true ]; then
+            echo "::error::a release needs the macOS signing and notarization secrets (or ALLOW_UNSIGNED_RELEASES=true)"; exit 1
+          fi
+
+          if [ "$signed" = true ]; then
+            keychain="$RUNNER_TEMP/signing.keychain-db"
+            kc_password="$(uuidgen)"
+            security create-keychain -p "$kc_password" "$keychain"
+            security set-keychain-settings -lut 21600 "$keychain"
+            security unlock-keychain -p "$kc_password" "$keychain"
+            echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple: -s -k "$kc_password" "$keychain" >/dev/null
+            security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+            codesign --force --deep --options runtime --timestamp \
+              --entitlements packaging/entitlements.plist --sign "$IDENTITY" "$app"
+          else
+            echo "::warning::macOS build is ad-hoc signed; Gatekeeper will warn on first open"
+            codesign --force --deep --options runtime --entitlements packaging/entitlements.plist --sign - "$app"
+          fi
+          codesign --verify --deep --strict --verbose=2 "$app"
+          "$app/Contents/MacOS/prherd" --version
+
+          stage="$RUNNER_TEMP/dmg"
+          mkdir -p "$stage"
+          cp -R "$app" "$stage/"
+          ln -s /Applications "$stage/Applications"
+          hdiutil create -quiet -volname "prherd ${VERSION%%+*}" -srcfolder "$stage" -ov -format UDZO "$dmg"
+
+          if [ "$signed" = true ]; then
+            codesign --force --timestamp --sign "$IDENTITY" "$dmg"
+          fi
+          if [ "$notarize" = true ]; then
+            xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" \
+              --team-id "$APPLE_TEAM_ID" --wait --timeout 30m
+            xcrun stapler staple "$dmg"
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          fi
+
+      - name: Remove signing keychain (macOS)
+        if: always() && runner.os == 'macOS'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+
+      # ---- Windows: Authenticode, zip ----------------------------------------------
+      - name: Sign and package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |-
+          $ErrorActionPreference = 'Stop'
+          $exe = 'dist\prherd\prherd.exe'
+          New-Item -ItemType Directory -Force out | Out-Null
+          $sign = $env:RELEASE -eq 'true' -and $env:PFX
+          if ($env:RELEASE -eq 'true' -and -not $sign -and $env:ALLOW_UNSIGNED -ne 'true') {
+            Write-Output '::error::a release needs WINDOWS_CERTIFICATE_PFX and WINDOWS_CERTIFICATE_PASSWORD (or ALLOW_UNSIGNED_RELEASES=true)'
+            exit 1
+          }
+          if ($sign) {
+            $pfxPath = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX))
+            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+              Sort-Object FullName | Select-Object -Last 1
+            try {
+              & $signtool.FullName sign /f $pfxPath /p $env:PFX_PASSWORD /fd SHA256 `
+                /tr http://timestamp.digicert.com /td SHA256 /d prherd $exe
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+              & $signtool.FullName verify /pa $exe
+              if ($LASTEXITCODE) { exit $LASTEXITCODE }
+            } finally {
+              Remove-Item -Force $pfxPath
+            }
+          } else {
+            Write-Output '::warning::Windows build is unsigned; SmartScreen will warn on first run'
+          }
+          Compress-Archive -Path 'dist\prherd' -DestinationPath "out\prherd-$($env:VERSION)-windows-x64.zip"
+
+      # ---- Linux: tarball ----------------------------------------------------------
+      - name: Package (Linux)
+        if: runner.os == 'Linux'
+        run: |-
+          dist/prherd/prherd --version
+          mkdir -p out
+          tar -C dist -czf "out/prherd-${VERSION}-linux-x64.tar.gz" prherd
+
+      - name: Upload build
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: prherd-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [version, build]
+    if: needs.version.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ needs.version.outputs.tag }}
+      TARGET: ${{ needs.version.outputs.target }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # the notes read commit subjects since the last release
+          persist-credentials: false
+
+      - name: Download builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: prherd-*
+          path: out
+          merge-multiple: true
+
+      - name: Checksums
+        run: cd out && sha256sum -- * > SHA256SUMS.txt && cat SHA256SUMS.txt
+
+      - name: Write title and notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |-
+          python3 scripts/release_notes.py --repo "$GITHUB_REPOSITORY" --tag "$TAG" --target "$TARGET" \
+            --version "$VERSION" --title-file "$RUNNER_TEMP/title.txt" --notes-file "$RUNNER_TEMP/notes.md"
+          { echo "## $(cat "$RUNNER_TEMP/title.txt")"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+        run: |-
+          args=(--title "$(cat "$RUNNER_TEMP/title.txt")" --notes-file "$RUNNER_TEMP/notes.md")
+          [ "$PRERELEASE" = true ] && args+=(--prerelease)
+          # A pushed tag already exists; a run by hand creates it at the commit it ran on.
+          if [ "$EVENT" = push ]; then args+=(--verify-tag); else args+=(--target "$TARGET"); fi
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" "${args[@]}"
