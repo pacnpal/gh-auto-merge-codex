@@ -602,6 +602,7 @@ def load_settings():
         "view": view if isinstance(view, str) and view in VIEWS else "all",
         "sidebar": sidebar if type(sidebar) is int and SIDEBAR[0] <= sidebar <= SIDEBAR[1] else 232,
         "log": s.get("log") is not False,
+        "notify": checked_notify(s.get("notify")),
     }
 
 
@@ -748,6 +749,19 @@ ICONS = {
     "clock": (("o", 12, 12, 10), (12, 6.5, 12, 12, 15.5, 14)),
     "shield": ((12, 22, 6.5, 18.5, 4, 13, 4, 5, 12, 2, 20, 5, 20, 13, 17.5, 18.5, 12, 22),),
     "pause": (("o", 12, 12, 10), (10, 9, 10, 15), (14, 9, 14, 15)),
+    "sliders": ((4, 21, 4, 14), (4, 10, 4, 3), (12, 21, 12, 12), (12, 8, 12, 3), (20, 21, 20, 16), (20, 12, 20, 3),
+                (1, 14, 7, 14), (9, 8, 15, 8), (17, 16, 23, 16)),
+    "gear": (("o", 12, 12, 3), (21.9, 10.6, 21.9, 13.4, 19.1, 13.9, 18.4, 15.7, 20, 18, 18, 20, 15.7, 18.4, 13.9, 19.1,
+                                13.4, 21.9, 10.6, 21.9, 10.1, 19.1, 8.3, 18.4, 6, 20, 4, 18, 5.6, 15.7, 4.9, 13.9,
+                                2.1, 13.4, 2.1, 10.6, 4.9, 10.1, 5.6, 8.3, 4, 6, 6, 4, 8.3, 5.6, 10.1, 4.9, 10.6, 2.1,
+                                13.4, 2.1, 13.9, 4.9, 15.7, 5.6, 18, 4, 20, 6, 18.4, 8.3, 19.1, 10.1, 21.9, 10.6)),
+    "book": ((4, 19.5, 4, 4.5, 4.7, 2.7, 6.5, 2, 20, 2, 20, 22, 6.5, 22, 4.7, 21.3, 4, 19.5, 4.7, 17.7, 6.5, 17,
+              20, 17),),
+    "merging": (("o", 18, 18, 3), ("o", 6, 6, 3), (6, 21, 6, 9, 6.7, 12.4, 8.6, 15.4, 11.6, 17.3, 15, 18)),
+    "sparkle": ((12, 3, 13.9, 8.1, 19, 10, 13.9, 11.9, 12, 17, 10.1, 11.9, 5, 10, 10.1, 8.1, 12, 3),),
+    "bell": ((3, 17, 4.6, 15.4, 5.6, 12.5, 6, 8, 6.8, 5, 9, 2.8, 12, 2, 15, 2.8, 17.2, 5, 18, 8, 18.4, 12.5,
+              19.4, 15.4, 21, 17, 3, 17), (10.3, 21, 11.1, 21.8, 12.9, 21.8, 13.7, 21)),
+    "trash": ((3, 6, 21, 6), (8, 6, 8, 4, 10, 2, 14, 2, 16, 4, 16, 6), (19, 6, 18, 20, 16, 22, 8, 22, 6, 20, 5, 6)),
     "plus": ((12, 5, 12, 19), (5, 12, 19, 12)),
     "x": ((6, 6, 18, 18), (18, 6, 6, 18)),
     "down": ((6, 9, 12, 15, 18, 9),),
@@ -826,6 +840,7 @@ def fonts(root):
         root.fonts = {"bold": cut("TkDefaultFont", weight="bold"), "small": cut("TkDefaultFont", -2),
                       "caps": cut("TkDefaultFont", -2, "bold"), "title": cut("TkDefaultFont", 6, "bold"),
                       "mono": cut("TkFixedFont")}
+        root.fonts.update(hero=cut("TkDefaultFont", 13, "bold"), lead=cut("TkDefaultFont", 1))  # the first run's
     return root.fonts
 
 
@@ -946,6 +961,55 @@ def theme(root, dark, appearance="system"):
     for name, tone in (("Live", "ok"), ("Idle", "hold")):
         s.configure(f"{name}.TLabel", background=p[f"{tone}-bg"], foreground=p[f"{tone}-fg"], font=f["small"],
                     padding=(7, 1, 8, 1))
+    # The settings window and the first run. A card is a bordered group of rows, each a title over smaller help.
+    s.configure("Group.TFrame", background=p["chk"])
+    s.configure("Edge.Group.TFrame", relief="solid", borderwidth=1, bordercolor=p["line"])
+    s.configure("GroupRule.TFrame", background=p["line-mid"])
+    s.configure("Group.TLabel", background=p["chk"], foreground=p["text"])
+    s.configure("Bold.Group.TLabel", font=f["bold"])
+    s.configure("Muted.Group.TLabel", foreground=p["muted"], font=f["small"])
+    s.configure("Value.Group.TLabel", foreground=p["text-3"])
+    s.configure("Mono.Group.TLabel", font=f["mono"])
+    s.configure("Code.Group.TLabel", background=p["hover"], font=f["mono"], padding=(6, 2))
+    s.configure("Tile.Group.TLabel", foreground="#FFFFFF", font=f["caps"])
+    s.configure("Group.Switch.TCheckbutton", background=p["chk"], padding=0)
+    s.map("Group.Switch.TCheckbutton", background=[("active", p["chk"])])
+    button("Group.TButton", p["chk"], p["muted"], p["chk"], p["hover"], padding=5)
+    for name, tone in (("Ok", "ok"), ("Bad", "bad"), ("Wait", "hold")):  # a repo's merge rights
+        s.configure(f"{name}.Rights.TLabel", background=p[f"{tone}-bg"], foreground=p[f"{tone}-fg"], font=f["small"],
+                    padding=(7, 1, 8, 1))
+    s.configure("Section.TLabel", foreground=p["muted"], font=f["caps"])
+    s.configure("Fineprint.TLabel", foreground=p["muted"], font=f["small"])
+    s.configure("Problem.TLabel", foreground=p["bad-fg"], font=f["small"])
+    # The settings window's tabs: an icon over a name, the chosen one on a darker patch.
+    tab = [("selected", p["side-on"]), ("active", p["side-hover"])]
+    s.configure("Tab.Toolbutton", background=p["side"], foreground=p["text-3"], font=f["small"], padding=(8, 6, 8, 5),
+                bordercolor=p["side"], lightcolor=p["side"], darkcolor=p["side"])
+    s.map("Tab.Toolbutton", background=tab, bordercolor=tab, lightcolor=tab, darkcolor=tab,
+          foreground=[("selected", p["acc-fg"])])
+    # One of a few choices, lit while it's the one chosen: an appearance's name, a merge mode's card.
+    s.map("Choice.TLabel", font=[("selected", f["bold"])])
+    lit = [("selected", p["acc-bg"])]
+    s.configure("Pick.TFrame", background=p["chk"], relief="solid", borderwidth=1, bordercolor=p["line"],
+                lightcolor=p["chk"], darkcolor=p["chk"])
+    s.map("Pick.TFrame", background=lit, lightcolor=lit, darkcolor=lit, bordercolor=[("selected", p["acc-dot"])])
+    s.configure("Pick.TLabel", background=p["chk"], foreground=p["text-3"], font=f["small"])
+    s.map("Pick.TLabel", background=lit)
+    s.configure("Flag.Pick.TLabel", foreground=p["muted"], font=f["mono"])
+    # The card's radio button draws its own dot, as the switch does.
+    s.layout("Pick.TRadiobutton", [("Radiobutton.padding", {"sticky": "nswe", "children": [
+        ("Radiobutton.focus", {"side": "left", "sticky": "w", "children": [
+            ("Radiobutton.label", {"sticky": "nswe"})]})]})])
+    s.configure("Pick.TRadiobutton", background=p["chk"], font=f["bold"], padding=0, space=12)
+    s.map("Pick.TRadiobutton", background=[("selected", p["acc-bg"]), ("active", p["chk"])])
+    # The first run: a large heading and a taller field on the window, the checks and the explainer on the side.
+    s.configure("Hero.TLabel", font=f["hero"])
+    s.configure("Lead.TLabel", foreground=p["none-fg"], font=f["lead"])
+    s.configure("Big.TEntry", padding=(10, 8))
+    s.configure("Big.Primary.TButton", padding=(18, 8))
+    s.configure("Problem.Side.TLabel", foreground=p["bad-fg"], font=f["small"])
+    s.configure("Step.Side.TLabel", font=f["caps"])
+    button("Link.Side.TButton", p["side"], p["link"], p["side"], p["side-hover"], font=f["small"], padding=(6, 2))
 
     def plain(widget):  # tk widgets ttk.Style doesn't reach
         if isinstance(widget, (tk.Tk, tk.Toplevel)):
@@ -1015,6 +1079,10 @@ class App:
         self.due = time.time()  # when it fires
         self.view, self.only = saved["view"], None  # the sidebar's view, and the one repo picked there, if any
         self.adding = False  # whether + has opened the sidebar's add-a-repo entry
+        self.notify = saved["notify"]  # NOTIFY_KINDS kind -> whether to notify of it; the settings window's switches
+        self.rights = {}  # repo -> whether gh's account can merge there, as far as the settings window has asked
+        self.prefs = None  # the settings window, while it's open
+        self.followers = []  # see tell()
         self.log_open = saved["log"]
         self.images = {}  # see image()
         self.painters = []  # see recolor()
@@ -1049,6 +1117,7 @@ class App:
         for target in targets:
             self.bg(self.add_repo, target)
         self.bg(lambda: self.events.put(("account", whoami())))
+        self.first_run = FirstRun(self, waiting=bool(saved["repos"] or targets))
         root.protocol("WM_DELETE_WINDOW", self.close)
         self.retheme()
         self.show_state()
@@ -1132,11 +1201,18 @@ class App:
         self.body.add(side, weight=0)
         ttk.Frame(side, style="Line.TFrame", width=1).pack(side="right", fill="y")
 
-        # Who gh is signed in as. show_account() packs it at the foot once gh has said.
-        self.account = ttk.Frame(side, style="Side.TFrame")
-        ttk.Frame(self.account, style="Line.TFrame", height=1).pack(fill="x", padx=10)
-        who = ttk.Frame(self.account, style="Side.TFrame", padding=(18, 10))
-        who.pack(fill="x")
+        # The foot: the way into the settings, and who gh is signed in as once it has said (see show_account()).
+        foot = ttk.Frame(side, style="Side.TFrame")
+        foot.pack(side="bottom", fill="x")
+        ttk.Frame(foot, style="Line.TFrame", height=1).pack(fill="x", padx=10)
+        row = ttk.Frame(foot, style="Side.TFrame", padding=(18, 10, 10, 10))
+        row.pack(fill="x")
+        ttk.Button(row, image=self.icon("sliders", "text-3", 15), style="Side.TButton", takefocus=False,
+                   command=self.settings).pack(side="right")
+        self.root.bind("<Command-comma>" if sys.platform == "darwin" else "<Control-comma>", self.settings)
+        if self.root.tk.call("tk", "windowingsystem") == "aqua":  # the app menu's Settings… item
+            self.root.createcommand("::tk::mac::ShowPreferences", self.settings)
+        who = self.account = ttk.Frame(row, style="Side.TFrame")
         self.avatar = ttk.Label(who, image=self.dot("avatar", 28), compound="center", style="Avatar.Side.TLabel")
         self.avatar.pack(side="left", padx=(0, 10))
         self.login = ttk.Label(who, style="Bold.Side.TLabel")
@@ -1337,13 +1413,13 @@ class App:
 
     # Small parts the builders share.
 
-    def hint(self, entry, var, text):
+    def hint(self, entry, var, text, x=5):
         """Grey text in an entry while it's empty, saying what goes there. Tk 8.6's entries have no placeholder."""
         label = ttk.Label(entry, text=text, style="Hint.Field.TLabel")
         label.bind("<Button-1>", lambda _: entry.focus_set())
 
         def show(*_):
-            label.place_forget() if var.get() else label.place(x=5, rely=0.5, anchor="w")
+            label.place_forget() if var.get() else label.place(x=x, rely=0.5, anchor="w")
 
         var.trace_add("write", show)
         show()
@@ -1473,15 +1549,14 @@ class App:
             "No repositories yet" if not self.repos else "No open pull requests" if not shown else
             f"{shown} open in {groups} repositor{'y' if groups == 1 else 'ies'}")
             + (f" · matching “{query.strip()}”" if query.split() else ""))
-        if groups:
+        if groups or not self.repos:  # with no repos, the first run is shown where the table is
             self.empty.place_forget()
         else:
-            title, text = (("Nothing here", "No open pull requests match this view.") if self.repos else
-                           ("No repositories yet", "Add one with + in the sidebar: owner/repo, or a local checkout."))
-            self.empty_title.configure(text=title)
-            self.empty_text.configure(text=text)
+            self.empty_title.configure(text="Nothing here")
+            self.empty_text.configure(text="No open pull requests match this view.")
             self.empty.place(relx=0.5, rely=0.45, anchor="center")
         self.show_sidebar()
+        self.tell("repos")
 
     def show_sidebar(self):
         """The sidebar's counts, its repo rows and which of its rows are chosen."""
@@ -1562,7 +1637,7 @@ class App:
         if login:
             self.login.configure(text=login)
             self.avatar.configure(text=login[:2].upper())
-            self.account.pack(side="bottom", fill="x", before=self.side_canvas)
+            self.account.pack(side="left")
 
     # The sidebar's and the toolbar's controls.
 
@@ -1590,6 +1665,14 @@ class App:
             self.log_body.pack_forget()
         if on is None:
             self.save()
+
+    def settings(self, _event=None):
+        """Open the settings window, or bring it forward if it's open already."""
+        if not self.prefs:
+            self.prefs = Settings(self)
+        self.prefs.top.deiconify()
+        self.prefs.top.lift()
+        self.prefs.top.focus_set()
 
     def control(self, **change):
         """A merge control changed: tell the workers, show what it means, save it."""
@@ -1621,6 +1704,7 @@ class App:
         try:
             repo = resolve(target)
         except Exception as e:
+            self.events.put(("tell", "unadded", target, e))
             return self.log(f"can't add {target}: {e!r}")
         self.show(repo)
 
@@ -1700,9 +1784,18 @@ class App:
                 self.busy = False
             elif kind == "account":
                 self.show_account(rest[0])
+            elif kind == "tell":
+                self.tell(*rest)
         if changed:
             self.render()
         self.root.after(200, self.drain)
+
+    def tell(self, what, *args):
+        """Pass news on to whatever else shows it: the first run and the settings window. render() tells them
+        "repos" when the list or its counts may have changed, and a worker thread posts ("tell", what, ...) to
+        self.events to reach them from off the Tk thread. Each follower is a function appended to self.followers."""
+        for follow in list(self.followers):
+            follow(what, *args)
 
     # What the buttons and menus do.
 
@@ -1800,13 +1893,776 @@ class App:
             save_settings({"repos": self.repos, "mode": self.mode_var.get(), "interval": self.seconds(),
                            "merging": self.merging.get(), "geometry": self.root.geometry(),
                            "appearance": self.appearance, "view": self.view, "sidebar": self.sidebar_width,
-                           "log": self.log_open})
+                           "log": self.log_open, "notify": self.notify})
         except OSError as e:
             self.log(f"can't save settings to {CONFIG}: {e}")
 
     def close(self):
         self.save()
         self.root.destroy()
+
+
+# What the settings window and the first run ask and draw. The asking is tested without a window.
+MERGERS = ("ADMIN", "MAINTAIN", "WRITE")  # the repo permissions GitHub lets merge a pull request
+
+
+def can_merge(repo):
+    """Whether the account gh is signed in as may merge in repo. None if gh can't say."""
+    try:
+        answer = gh_json("repo", "view", repo, "--json", "viewerPermission")
+    except (RuntimeError, ValueError, OSError):
+        return None
+    permission = answer.get("viewerPermission") if isinstance(answer, dict) else None
+    return permission in MERGERS if permission and isinstance(permission, str) else None
+
+
+def can_notify():
+    """Whether notify() has anything to post with here."""
+    if sys.platform == "darwin":
+        return os.access("/usr/bin/osascript", os.X_OK)
+    return bool(shutil.which("notify-send"))
+
+
+# What the button that shows a file is called: only the first two can point at the file itself.
+REVEAL = {"darwin": "Show in Finder", "win32": "Show in Explorer"}.get(sys.platform, "Open folder")
+
+
+def reveal(path):
+    """Show path in the file manager, selected where that can be asked for. Returns "" or what went wrong."""
+    if sys.platform == "darwin":
+        argv = ["/usr/bin/open", "-R", path]
+    elif sys.platform == "win32":
+        argv = ["explorer", f"/select,{os.path.normpath(path)}"]
+    else:
+        argv = ["xdg-open", os.path.dirname(path)]
+    try:  # spawned as gh() is
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=30, close_fds=False, creationflags=NO_WINDOW)
+    except (OSError, subprocess.SubprocessError) as e:
+        return f"can't show {path}: {e}"
+    # Explorer exits 1 even when it opened.
+    return f"can't show {path}: {output(r)}" if r.returncode and sys.platform != "win32" else ""
+
+
+SQUARE = (6, 6, 18, 6, 18, 18, 6, 18, 6, 6)  # stroked 12 wide, a rounded square that fills draw()'s grid
+CHECK_BULLETS = {  # a bullet's tone and its mark, drawn as ICONS are: passed, failed, still asking, nothing to check
+    True: ("ok", ((7, 12.5, 10.5, 16, 17, 8.5),)),
+    False: ("bad", ((8.5, 8.5, 15.5, 15.5), (15.5, 8.5, 8.5, 15.5))),
+    None: ("hold", ((7, 12, 7, 12), (12, 12, 12, 12), (17, 12, 17, 12))),
+    "": ("hold", ((8, 12, 16, 12),)),
+}
+
+
+def check_bullet(app, ok, size=20):
+    """A round bullet for how a check went, from CHECK_BULLETS: the tick in a green disc beside one that passed."""
+    tone, mark = CHECK_BULLETS[ok]
+    return app.image(("bullet", ok, size), lambda p: draw(((p[f"{tone}-bg"], 24, ((12, 12, 12, 12),)),
+                                                           (p[f"{tone}-fg"], 2.6, mark)), size, size))
+
+
+def tile(app, color, size, icon=None, ink="#FFFFFF"):
+    """A rounded square, with one of ICONS small in its middle if given. color and ink are PALETTE names or colors."""
+    at = lambda v: 12 + (v - 12) * 0.55
+    mark = tuple(("o", at(s[1]), at(s[2]), s[3] * 0.55) if s[0] == "o" else tuple(map(at, s))
+                 for s in ICONS.get(icon, ()))
+    return app.image(("tile", color, size, icon, ink), lambda p: draw(
+        ((p.get(color, color), 12, (SQUARE,)), (p.get(ink, ink), 1.3, mark)), size, size))
+
+
+class Settings:
+    """The settings window, after design/Settings.dc.html: five panes under a row of tabs.
+
+    It keeps nothing of its own. Each control is one of the App's variables or calls one of its methods, and
+    acts at once, so there's no OK or Apply and the toolbar and sidebar always agree with it.
+    """
+
+    PANES = (("general", "General", "gear"), ("repos", "Repositories", "book"), ("merging", "Merging", "merging"),
+             ("codex", "Codex", "sparkle"), ("notify", "Notifications", "bell"))
+    WIDTH = 600  # of the column of cards, as in the design
+    LOOKS = (("light", "Light"), ("dark", "Dark"), ("system", "Match system"))
+    # The appearance previews are always in their own colors, whatever the window's: from the design.
+    PREVIEW = {"light": {"pane": "#FFFFFF", "side": "#F6F6F8", "line": "#E4E4E9", "bar": "#DCDCE2", "head": "#C9CAD1",
+                         "row": "#F1F1F4"},
+               "dark": {"pane": "#16171B", "side": "#131418", "line": "#2A2B31", "bar": "#2E2F37", "head": "#3A3B43",
+                        "row": "#202127"}}
+    # Each merge mode's flag and what it means, by its value in MODES.
+    MODE_HELP = {"": ("the default", "Queues the merge behind required checks. The safest."),
+                 "force": ("--force", "Merges right away without auto-merge. Branch protection still applies."),
+                 "admin": ("--admin", "Merges with admin rights and bypasses branch protection.")}
+    # Each notification's switch, by its kind in NOTIFY_KINDS.
+    NOTIFY_HELP = {"merged": ("A pull request merges", "One notification per merge, naming its repo."),
+                   "conflict": ("A pull request starts conflicting", "Sent when prherd posts its conflict comment."),
+                   "failed": ("A verdict lookup fails", "After two failed polls in a row."),
+                   "cleared": ("Codex clears a pull request", "Useful while Auto-merge is off.")}
+    TINTS = ("#4F46E5", "#0F766E", "#C2410C", "#7C3AED")  # a repo's tile is one of these, by its name
+    REPO_NOTE = "Repos passed on the command line are added to this list. GitHub Enterprise hosts work too."
+
+    def __init__(self, app):
+        self.app, root = app, app.root
+        top = self.top = tk.Toplevel(root)
+        top.withdraw()  # until it's themed and placed
+        top.resizable(False, True)
+        strip = self.strip = ttk.Frame(top, style="Side.TFrame", padding=(14, 8, 14, 7))
+        strip.pack(fill="x")
+        ttk.Frame(top, style="Line.TFrame", height=1).pack(fill="x")
+        tabs = ttk.Frame(strip, style="Side.TFrame")
+        tabs.pack()
+        self.pane = tk.StringVar(value="general")
+        for key, label, icon in self.PANES:
+            ttk.Radiobutton(tabs, text=label, variable=self.pane, value=key, style="Tab.Toolbutton", compound="top",
+                            width=-11, takefocus=False, command=self.show_pane,
+                            image=(app.icon(icon, "text-3", 20), "selected", app.icon(icon, "acc-fg", 20))
+                            ).pack(side="left", padx=2)
+
+        # The window is as tall as its pane (see fit()), but a pane taller than the screen has to scroll.
+        canvas = self.canvas = tk.Canvas(top, highlightthickness=0, borderwidth=0, yscrollincrement=16,
+                                         width=self.WIDTH + 120, height=1)
+        canvas.pack(fill="both", expand=True)
+        bar = ttk.Scrollbar(canvas, orient="vertical", command=canvas.yview)
+
+        def span(first, last):  # laid over the edge, so the column of cards stays put when it comes and goes
+            bar.set(first, last)
+            if float(first) > 0 or float(last) < 1:
+                bar.place(relx=1, rely=0, anchor="ne", relheight=1)
+            else:
+                bar.place_forget()
+
+        canvas.configure(yscrollcommand=span)
+        column = self.column = ttk.Frame(canvas, padding=(0, 22, 0, 6))
+        held = canvas.create_window(0, 0, anchor="n", window=column, width=self.WIDTH)
+        canvas.bind("<Configure>", lambda event: canvas.coords(held, event.width // 2, 0))
+        column.bind("<Configure>", lambda event: canvas.configure(scrollregion=(0, 0, 1, event.height)))
+
+        def wheel(event):
+            if column.winfo_height() > canvas.winfo_height():
+                canvas.yview_scroll(-1 if event.num == 4 or event.delta > 0 else 1, "units")
+
+        for gesture in ("<MouseWheel>", "<Button-4>", "<Button-5>"):  # X11 sends the wheel as buttons 4 and 5
+            top.bind(gesture, wheel)
+
+        self.traces = []  # (var, trace) for each of the App's variables this window follows; close() drops them
+        self.panes = {}
+        for key, _, _ in self.PANES:
+            self.panes[key] = ttk.Frame(column)
+            getattr(self, f"build_{key}")(self.panes[key])
+        app.painters.append(self.paint)
+        app.followers.append(self.told)
+        top.protocol("WM_DELETE_WINDOW", self.close)
+        for keys in ("<Escape>", "<Command-w>" if sys.platform == "darwin" else "<Control-w>"):
+            top.bind(keys, lambda _: self.close())
+
+        top.minsize(self.WIDTH + 120, 240)
+        top.geometry(f"+{root.winfo_rootx() + max(0, (root.winfo_width() - self.WIDTH - 120) // 2)}"
+                     f"+{root.winfo_rooty() + 40}")  # over the main window
+        self.show_pane()
+        app.retheme(force=True)  # reaches the new window, and runs paint()
+        top.deiconify()
+
+    def close(self):
+        app = self.app
+        app.painters.remove(self.paint)
+        app.followers.remove(self.told)
+        for var, trace in self.traces:
+            var.trace_remove("write", trace)
+        app.prefs = None
+        self.top.destroy()
+
+    def follow(self, var, changed):
+        """Call changed() whenever one of the App's variables is set, here or in the main window."""
+        self.traces.append((var, var.trace_add("write", lambda *_: changed())))
+
+    def told(self, what, *args):
+        """News from the App: see App.tell()."""
+        if what == "repos":
+            self.show_repos()
+        elif what == "rights":
+            repo, answer = args
+            if answer is None:
+                self.unknown.add(repo)  # keeps any earlier answer
+            else:
+                self.app.rights[repo] = answer
+            self.show_repos()
+        elif what == "unadded":
+            self.repo_note.configure(text=f"Can't add {args[0]}: {args[1]}", style="Problem.TLabel")
+        elif what == "login":
+            self.login.set(args[0])
+
+    def paint(self, p):
+        """Color what ttk.Style can't: the canvases."""
+        self.canvas.configure(background=p["win"])
+        self.show_look()
+
+    def show_pane(self):
+        key = self.pane.get()
+        for name, pane in self.panes.items():
+            if name != key:  # not the one that's up: macOS Tk leaves a pane blank that's taken down and put back
+                pane.pack_forget()
+        self.panes[key].pack(fill="x")
+        self.canvas.yview_moveto(0)
+        self.top.title(next(label for name, label, _ in self.PANES if name == key))  # as macOS settings windows do
+        self.fit()
+
+    def fit(self):
+        """Make the window as tall as the pane that's up, as far as the screen has room."""
+        top = self.top
+        top.update_idletasks()  # so the pane has asked for its height
+        height = self.strip.winfo_reqheight() + 1 + self.column.winfo_reqheight()
+        top.geometry(f"{self.WIDTH + 120}x{min(height, top.winfo_screenheight() - 160)}")
+
+    # What the panes are made of.
+
+    def section(self, pane, title=None):
+        """A group of cards in a pane, under its title if it has one."""
+        box = ttk.Frame(pane)
+        box.pack(fill="x", pady=(0, 22))
+        if title:
+            ttk.Label(box, text=title, style="Section.TLabel").pack(anchor="w", padx=4, pady=(0, 8))
+        return box
+
+    def card(self, parent):
+        card = ttk.Frame(parent, style="Edge.Group.TFrame", padding=1)
+        card.pack(fill="x")
+        return card
+
+    def row(self, card, title, help=None, style="Group.TLabel", image=None):
+        """A row of a card: its title over smaller help text, under a rule unless it's the card's first.
+        Returns the row. Its control or value goes on its right, with right()."""
+        if card.winfo_children():
+            ttk.Frame(card, style="GroupRule.TFrame", height=1).pack(fill="x")
+        row = ttk.Frame(card, style="Group.TFrame", padding=(14, 11))
+        row.pack(fill="x")
+        row.columnconfigure(1, weight=1)
+        if image:
+            ttk.Label(row, image=image, style="Group.TLabel").grid(row=0, column=0, rowspan=2, padx=(0, 12))
+        ttk.Label(row, text=title, style=style, wraplength=400).grid(row=0, column=1, sticky="w")  # a long path
+        if help:
+            ttk.Label(row, text=help, style="Muted.Group.TLabel", wraplength=400, justify="left").grid(
+                row=1, column=1, sticky="w", pady=(1, 0))
+        return row
+
+    @staticmethod
+    def right(row, widget):
+        widget.grid(row=0, column=2, rowspan=2, padx=(16, 0))
+        return widget
+
+    def switch(self, row, var, command):
+        return self.right(row, ttk.Checkbutton(
+            row, variable=var, style="Group.Switch.TCheckbutton", command=command,
+            image=(self.app.switch(False), "selected", self.app.switch(True))))
+
+    # The panes.
+
+    def build_general(self, pane):
+        app = self.app
+        looks = ttk.Frame(self.section(pane, "Appearance"))
+        looks.pack(fill="x")
+        self.looks = {}  # appearance -> (its preview, its name)
+        for at, (value, label) in enumerate(self.LOOKS):
+            looks.columnconfigure(at, weight=1, uniform="looks")
+            cell = ttk.Frame(looks)
+            cell.grid(row=0, column=at)
+            preview = tk.Canvas(cell, width=188, height=98, highlightthickness=0, borderwidth=0, cursor="hand2")
+            preview.pack()
+            name = ttk.Label(cell, text=label, style="Choice.TLabel", cursor="hand2")
+            name.pack(pady=(6, 0))
+            for part in (preview, name):
+                part.bind("<Button-1>", lambda _, value=value: self.pick_look(value))
+            self.looks[value] = preview, name
+
+        polling = self.card(self.section(pane, "Polling"))
+        row = self.row(polling, "Poll every", "How often prherd lists open pull requests on each repo.")
+        every = self.right(row, ttk.Frame(row, style="Group.TFrame"))
+        # The toolbar's own variable and handlers, so the two fields are one setting.
+        spin = ttk.Spinbox(every, from_=1, to=86400, width=6, textvariable=app.interval_var, command=app.retime,
+                           justify="right")
+        spin.pack(side="left")
+        for event in ("<Return>", "<FocusOut>"):
+            spin.bind(event, app.retime)
+        ttk.Label(every, text="seconds", style="Value.Group.TLabel").pack(side="left", padx=(6, 0))
+        self.login = tk.BooleanVar(value=login_item_enabled())
+        row = self.row(polling, "Open at login", "Start watching as soon as you sign in.")
+        self.switch(row, self.login, self.set_login)
+
+        saved = self.card(self.section(pane, "Saved settings"))
+        home = os.path.expanduser("~")
+        path = "~" + CONFIG[len(home):] if CONFIG.startswith(home + os.sep) else CONFIG
+        row = self.row(saved, path, "Repos, merge mode, interval, Auto-merge, notifications and the window's layout."
+                                    " Saved on every change.", style="Mono.Group.TLabel")
+        self.right(row, ttk.Button(row, text=REVEAL, command=self.reveal))
+
+    def show_look(self):
+        """Draw the three appearance previews, with a ring around the one in use."""
+        p = self.app.palette
+        for value, (canvas, name) in self.looks.items():
+            on = value == self.app.appearance
+            name.state(["selected" if on else "!selected"])
+            canvas.delete("all")
+            canvas.configure(background=p["win"])
+            x0, y0, x1, y1 = 4, 4, int(canvas.cget("width")) - 4, int(canvas.cget("height")) - 4
+            middle = (x0 + x1) // 2
+
+            def box(left, top, right, bottom, color):
+                """A rectangle of the preview in its own colors. Match system's is light to the left, dark to
+                the right."""
+                sides = (("light", x0, middle), ("dark", middle, x1)) if value == "system" else ((value, x0, x1),)
+                for look, start, end in sides:
+                    if max(left, start) < min(right, end):
+                        canvas.create_rectangle(max(left, start), top, min(right, end), bottom, width=0,
+                                                fill=self.PREVIEW[look].get(color, color))
+
+            side = x0 + (x1 - x0) * 34 // 100
+            box(x0, y0, x1, y1, "pane")
+            box(x0, y0, side, y1, "side")
+            box(side, y0, side + 1, y1, "line")
+            for at, part in enumerate((70, 90, 60)):
+                box(x0 + 8, y0 + 10 + at * 12, x0 + 8 + (side - x0 - 16) * part // 100, y0 + 16 + at * 12, "bar")
+            left, right = side + 11, x1 - 10
+            box(left, y0 + 10, left + (right - left) * 55 // 100, y0 + 18, "head")
+            for at in range(2):
+                box(left, y0 + 25 + at * 19, right, y0 + 37 + at * 19, "row")
+            box(left, y0 + 63, left + (right - left) * 40 // 100, y0 + 75, "#4F46E5")
+            canvas.create_rectangle(x0 - 1, y0 - 1, x1, y1, outline=p["line"])
+            if on:
+                canvas.create_rectangle(x0 - 3, y0 - 3, x1 + 2, y1 + 2, outline=p["acc-dot"], width=2)
+
+    def pick_look(self, value):
+        app = self.app
+        app.appearance = value
+        app.retheme(force=True)
+        app.save()
+
+    def set_login(self):
+        """Write or remove the login item off the Tk thread, then set the switch to what's true: it can fail."""
+        def run(enable):
+            self.app.log(login_item(enable))
+            self.app.events.put(("tell", "login", login_item_enabled()))
+
+        self.app.bg(run, self.login.get())
+
+    def reveal(self):
+        def run():
+            if problem := reveal(CONFIG):
+                self.app.log(problem)
+
+        self.app.save()  # so there's a file to show, on a first launch too
+        self.app.bg(run)
+
+    def build_repos(self, pane):
+        app = self.app
+        box = self.section(pane, "Watched repositories")
+        card = self.card(box)
+        self.repo_list = ttk.Frame(card, style="Group.TFrame")
+        self.repo_list.pack(fill="x")
+        self.repo_rows = {}  # repo -> its row; show_repos() keeps them in step with the App's repos
+        self.asked, self.unknown = set(), set()  # the repos whose merge rights gh was asked for, and couldn't say
+        form = ttk.Frame(card, style="Group.TFrame", padding=10)
+        form.pack(fill="x")
+        ttk.Button(form, text="Add", style="Primary.TButton", command=self.add).pack(side="right", padx=(8, 0))
+        self.new_repo = tk.StringVar()
+        entry = ttk.Entry(form, textvariable=self.new_repo)
+        entry.pack(side="left", fill="x", expand=True)
+        app.hint(entry, self.new_repo, "owner/repo or a local checkout")
+        entry.bind("<Return>", self.add)
+        self.repo_note = ttk.Label(box, text=self.REPO_NOTE, style="Fineprint.TLabel", wraplength=self.WIDTH - 8,
+                                   justify="left")
+        self.repo_note.pack(anchor="w", padx=4, pady=(8, 0))
+        self.show_repos()
+
+    def add(self, _event=None):
+        """Add the repo typed here, the way the sidebar's field does."""
+        self.repo_note.configure(text=self.REPO_NOTE, style="Fineprint.TLabel")
+        self.app.new_repo.set(self.new_repo.get())
+        self.new_repo.set("")
+        self.app.add()
+
+    def show_repos(self):
+        """The repo list as the App has it now: each repo's open PRs, and whether gh's account can merge there."""
+        app = self.app
+        if list(self.repo_rows) != app.repos:  # a repo came or went: make the rows afresh
+            for row in self.repo_rows.values():
+                row.destroy()
+            self.repo_rows = {repo: self.repo_row(repo) for repo in app.repos}
+            if self.repo_list.winfo_ismapped():
+                self.fit()
+        for repo, row in self.repo_rows.items():
+            rows = app.rows.get(repo)
+            row.note.configure(text="couldn't list its pull requests" if repo in app.failed else
+                               "not polled yet" if rows is None else f"{len(rows)} open")
+            if repo in app.rights:
+                text, style, dot = (("Can merge", "Ok", "ok-dot") if app.rights[repo] else
+                                    ("Can't merge", "Bad", "bad-dot"))
+            else:
+                text, style, dot = "Unknown" if repo in self.unknown else "Checking…", "Wait", "open-dot"
+            row.badge.configure(text=text, style=f"{style}.Rights.TLabel", image=app.dot(dot, 6))
+            if repo not in self.asked:  # once per window: a cached answer shows meanwhile, and is checked again
+                self.asked.add(repo)
+                app.bg(lambda repo=repo: app.events.put(("tell", "rights", repo, can_merge(repo))))
+
+    def repo_row(self, repo):
+        app = self.app
+        row = ttk.Frame(self.repo_list, style="Group.TFrame")
+        row.pack(fill="x")
+        ttk.Frame(row, style="GroupRule.TFrame", height=1).pack(side="bottom", fill="x")
+        line = ttk.Frame(row, style="Group.TFrame", padding=(14, 9, 9, 9))
+        line.pack(fill="x")
+        line.columnconfigure(1, weight=1)
+        name = short(repo)
+        tint = self.TINTS[zlib.crc32(name.encode()) % len(self.TINTS)]
+        ttk.Label(line, text=name.rpartition("/")[2][:1].upper(), image=tile(app, tint, 26), compound="center",
+                  style="Tile.Group.TLabel").grid(row=0, column=0, rowspan=2, padx=(0, 12))
+        ttk.Label(line, text=name, style="Mono.Group.TLabel").grid(row=0, column=1, sticky="w")
+        row.note = ttk.Label(line, style="Muted.Group.TLabel")
+        row.note.grid(row=1, column=1, sticky="w")
+        row.badge = ttk.Label(line, compound="left")
+        row.badge.grid(row=0, column=2, rowspan=2, padx=(12, 6))
+        ttk.Button(line, image=app.icon("trash", "muted", 14), style="Group.TButton", takefocus=False,
+                   command=lambda: app.remove([repo])).grid(row=0, column=3, rowspan=2)
+        return row
+
+    def build_merging(self, pane):
+        app = self.app
+        row = self.row(self.card(self.section(pane)), "Auto-merge",
+                       "Off means watch only. Conflict comments are still posted.", style="Bold.Group.TLabel")
+        self.switch(row, app.merging, lambda: app.control(merging=app.merging.get()))
+
+        modes = self.section(pane, "Merge mode")
+        self.mode_cards = {}  # mode -> the parts of its card that light up while it's the mode
+        for label, value in MODES:
+            flag, text = self.MODE_HELP[value]
+            card = ttk.Frame(modes, style="Pick.TFrame", padding=(14, 11))
+            card.pack(fill="x", pady=(0, 8))
+            card.columnconfigure(1, weight=1)
+            # The toolbar's variable and handler: this is the same control, drawn as cards.
+            ttk.Radiobutton(card, text=label, variable=app.mode_var, value=value, style="Pick.TRadiobutton",
+                            compound="left", image=(self.radio(False), "selected", self.radio(True)),
+                            command=lambda: app.control(mode=app.mode_var.get())).grid(row=0, column=0, sticky="w")
+            ttk.Label(card, text=flag, style="Flag.Pick.TLabel").grid(row=0, column=1, sticky="w", padx=(8, 0))
+            ttk.Label(card, text=text, style="Pick.TLabel").grid(row=1, column=0, columnspan=2, sticky="w",
+                                                                  padx=(28, 0), pady=(2, 0))
+            self.mode_cards[value] = (card, *card.winfo_children())
+            for part in self.mode_cards[value][:1] + self.mode_cards[value][2:]:  # the radio button clicks itself
+                part.bind("<Button-1>", lambda _, value=value: self.pick_mode(value))
+        self.admin_note = ttk.Frame(modes, style="Admin.TFrame", padding=(12, 9))
+        ttk.Label(self.admin_note, style="Admin.TLabel", text=(
+            "Admin bypasses branch protection on every watched repo. Merge now uses it too.")).pack(anchor="w")
+        self.follow(app.mode_var, self.show_mode)
+        self.show_mode()
+
+        rules = self.card(self.section(pane, "Rules"))
+        row = self.row(rules, "Merge method")
+        self.right(row, ttk.Label(row, text="Squash, pinned to the head commit", style="Value.Group.TLabel"))
+        row = self.row(rules, "Hold label")
+        self.right(row, ttk.Label(row, text=DONT_MERGE, style="Code.Group.TLabel"))
+        row = self.row(rules, "Conflicts", "Comments once per head commit, then waits.")
+        self.right(row, ttk.Label(row, text="Comment and skip", style="Value.Group.TLabel"))
+
+    def radio(self, on):
+        """A mode card's dot: a ring, thick and in the accent when it's the one chosen."""
+        edge, hole = ("acc-dot", 9) if on else ("field-border", 20)
+        return self.app.image(("radio", on), lambda p: draw(((p[edge], 24, ((12, 12, 12, 12),)),
+                                                             (p["field"], hole, ((12, 12, 12, 12),))), 16, 16))
+
+    def pick_mode(self, value):
+        self.app.mode_var.set(value)
+        self.app.control(mode=value)
+
+    def show_mode(self):
+        mode = self.app.mode_var.get()
+        for value, parts in self.mode_cards.items():
+            for part in parts:
+                part.state(["selected" if value == mode else "!selected"])
+        if mode == "admin":
+            self.admin_note.pack(fill="x")
+        else:
+            self.admin_note.pack_forget()
+        if self.panes["merging"].winfo_manager():  # it's the pane that's up, and now a different height
+            self.fit()
+
+    def build_codex(self, pane):
+        app = self.app
+        known = BOT_ID == 199175422  # else it's whoever BOT_ID names
+        row = self.row(self.card(self.section(pane, "Reviewer")),
+                       "chatgpt-codex-connector[bot]" if known else "The account set by BOT_ID",
+                       "Matched by user id, so no other account can pass as Codex.", style="Bold.Group.TLabel",
+                       image=tile(app, "inv", 34, "sparkle", "inv-fg"))
+        who = self.right(row, ttk.Frame(row, style="Group.TFrame"))
+        ttk.Label(who, text="User id", style="Muted.Group.TLabel").pack(anchor="e")
+        ttk.Label(who, text=BOT_ID, style="Mono.Group.TLabel").pack(anchor="e")
+
+        counts = self.card(self.section(pane, "Counts as a go-ahead"))
+        self.row(counts, "Thumbs-up reaction on the pull request",
+                 "Must be newer than the latest push or check suite.", image=check_bullet(app, True))
+        self.row(counts, "“Didn't find any major issues” review receipt",
+                 "Only when its reviewed commit matches the current head.", image=check_bullet(app, True))
+
+        row = self.row(self.card(self.section(pane, "Requesting a review")), "Comment posted")
+        self.right(row, ttk.Label(row, text="@codex review", style="Code.Group.TLabel"))
+
+    def build_notify(self, pane):
+        app = self.app
+        box = self.section(pane, "Notify me when")
+        card = self.card(box)
+        self.notify = {}  # kind -> its switch's variable
+        for kind in NOTIFY_KINDS:
+            title, text = self.NOTIFY_HELP[kind]
+            self.notify[kind] = tk.BooleanVar(value=app.notify[kind])
+            self.switch(self.row(card, title, text), self.notify[kind], lambda kind=kind: self.set_notify(kind))
+        if not can_notify():
+            note = ttk.Frame(box, style="Admin.TFrame", padding=(12, 9))
+            note.pack(fill="x", pady=(8, 0))
+            ttk.Label(note, style="Admin.TLabel", wraplength=self.WIDTH - 24, justify="left", text=(
+                "Notifications can't be shown on this computer: Windows has nothing built in to post them with."
+                if sys.platform == "win32" else
+                "Notifications can't be shown on this computer: install notify-send (libnotify) to get them."
+                if sys.platform != "darwin" else
+                "Notifications can't be shown on this computer: osascript is missing.")).pack(anchor="w")
+
+    def set_notify(self, kind):
+        self.app.notify[kind] = self.notify[kind].get()
+        self.app.save()
+
+
+class FirstRun:
+    """The first-run screen, after design/FirstRun.dc.html: shown where the table is while no repo is watched.
+
+    With it up, the window is the toolbar and this: the sidebar, the heading and the log have nothing to show
+    yet, so they're put away until the first repo is added.
+    """
+
+    CHECKS = ("GitHub CLI installed", "Signed in")  # setup_checks()'s titles, to show while it's still asking
+    STEPS = (("A thumbs-up from Codex", "on the pull request, or its review receipt saying no major issues for the"
+                                        " current head."),
+             ("Newer than the latest commit.", "A push or re-run check after the go-ahead voids it, using GitHub's"
+                                               " own timestamps."),
+             ("No conflicts, no hold.", "Conflicting pull requests get one comment. Anything labeled "
+                                        f"{DONT_MERGE.replace('-', chr(0x2011))} is left alone."))  # unbroken
+    HINT = "GitHub Enterprise hosts work too. Press Return to add."
+
+    def __init__(self, app, waiting):
+        self.app = app
+        self.waiting = waiting  # the repos saved or passed at launch haven't arrived yet: no repos isn't news
+        self.screen, self.up = None, False  # built when first shown; most launches never show it
+        self.put_away = []  # the chrome hidden while this is up, and how to put each piece back
+        self.fitting = None  # the fit() that's waiting
+        app.followers.append(self.told)
+
+    def told(self, what, *args):
+        """News from the App: see App.tell()."""
+        if what == "repos":
+            self.show()
+        elif what == "unadded":
+            self.waiting = False  # a repo passed at launch that can't be added isn't coming
+            self.show()
+            if self.up:
+                self.say(f"Can't add {args[0]}: {args[1]}", "Problem.TLabel")
+        elif what == "checks" and self.screen:
+            for row, result in zip(self.checks, args[0]):
+                self.show_check(row, *result)
+
+    def show(self):
+        """Put the screen up, or take it down, to match the repo list."""
+        app = self.app
+        if app.repos:
+            self.waiting = False
+        on = not app.repos and not self.waiting
+        if on == self.up:
+            return
+        self.up = on
+        if on:
+            if not self.screen:
+                self.build()
+            app.swap(self.screen)
+            self.say()
+            self.check()
+            self.entry.focus_set()
+        else:
+            app.swap()
+        self.chrome(not on)
+
+    def chrome(self, on):
+        """Put away the sidebar and anything else beside the main column, and the heading and log in it, or put
+        them back as they were."""
+        root, body, main = self.app.root, self.app.body, self.app.main
+        if on:
+            self.app.sidebar.configure(width=self.app.sidebar_width)  # as wide as it was dragged, not as first made
+            self.app.content.pack_forget()
+            for put_back in self.put_away:
+                put_back()
+            self.app.content.pack(fill="both", expand=True)
+            self.put_away = []
+        elif not self.put_away:
+            self.least = root.minsize()  # fit() raises it while this is up
+            self.put_away.append(lambda: root.minsize(*self.least))
+            panes = [str(pane) for pane in body.panes()]
+            for at, pane in enumerate(panes):
+                if pane != str(main):
+                    self.put_away.append(lambda at=at, pane=pane, weight=body.pane(pane, "weight"):
+                                         body.insert(at, pane, weight=weight))
+            for widget in main.pack_slaves():
+                if widget is not self.app.content:
+                    self.put_away.append(lambda widget=widget, how=widget.pack_info(): widget.pack(**how))
+            for pane in panes:
+                if pane != str(main):
+                    body.forget(pane)
+            for widget in main.pack_slaves():
+                if widget is not self.app.content:
+                    widget.pack_forget()
+
+    def fit(self):
+        """Keep the window from being made too short to show all of this: unlike the table, it doesn't scroll."""
+        root, self.fitting = self.app.root, None
+        # What the window asks for is this under the toolbar and any banner: nothing else is packed, and none of
+        # it depends on the height the window has, so raising its least height can't feed back.
+        least = self.least[0], max(self.least[1], root.winfo_reqheight())
+        if self.up and least != root.minsize():
+            root.minsize(*least)
+
+    def refit(self):
+        """fit() once the layout has settled: a paragraph that rewraps changes what the window asks for."""
+        if self.fitting:
+            self.app.root.after_cancel(self.fitting)
+        self.fitting = self.app.root.after(50, self.fit)
+
+    def build(self):
+        app = self.app
+        screen = self.screen = ttk.Frame(app.content)
+        screen.columnconfigure(0, weight=5, uniform="halves")
+        screen.columnconfigure(2, weight=4, uniform="halves")
+        screen.rowconfigure(0, weight=1)
+        left = ttk.Frame(screen, padding=(48, 40, 40, 28))
+        left.grid(row=0, column=0, sticky="nsew")
+        ttk.Frame(screen, style="Line.TFrame", width=1).grid(row=0, column=1, sticky="ns")
+        aside = ttk.Frame(screen, style="Side.TFrame", padding=(32, 40, 32, 28))
+        aside.grid(row=0, column=2, sticky="nsew")
+        wrapped = []  # (label, the container it fills, the width beside it that isn't its own, its widest)
+
+        logo = app.image("logo", lambda p: draw((("#4F46E5", 12, (SQUARE,)), ("#FFFFFF", 1.8, (
+            (6.9, 8.1, 16.7, 12, 6.9, 15.9),)), ("#FFFFFF", 4.6, ((6.9, 8.1, 6.9, 8.1), (6.9, 15.9, 6.9, 15.9))),
+            ("#FFFFFF", 5.6, ((16.7, 12, 16.7, 12),))), 40, 40))
+        ttk.Label(left, text="  prherd", image=logo, compound="left", style="Title.TLabel").pack(anchor="w")
+        hero = ttk.Label(left, text="Merge what Codex clears.\nSkip what it doesn't.", style="Hero.TLabel",
+                         justify="left")
+        hero.pack(anchor="w", pady=(24, 0))
+        lead = ttk.Label(left, style="Lead.TLabel", justify="left", text=(
+            "Add the repositories to watch. prherd polls their open pull requests and squash-merges each one once"
+            " Codex signs off on its latest commit."))
+        lead.pack(anchor="w", pady=(10, 0))
+        ttk.Label(left, text="Repository", style="Section.TLabel").pack(anchor="w", pady=(26, 6))
+        form = ttk.Frame(left)
+        form.pack(fill="x")
+        ttk.Button(form, text="Add", style="Big.Primary.TButton", command=self.add).pack(side="right", fill="y",
+                                                                                         padx=(8, 0))
+        # The sidebar's own variable, so Return here is the sidebar's add.
+        self.entry = ttk.Entry(form, textvariable=app.new_repo, style="Big.TEntry")
+        self.entry.pack(side="left", fill="x", expand=True)
+        app.hint(self.entry, app.new_repo, "owner/repo or ~/path/to/checkout", x=11)
+        self.entry.bind("<Return>", self.add)
+        self.status = ttk.Label(left, justify="left")  # the hint, then how the adding is going
+        self.status.pack(anchor="w", pady=(8, 0))
+        foot = ttk.Frame(left)
+        foot.pack(side="bottom", fill="x", pady=(20, 0))
+        settings = ttk.Button(foot, text="Settings…", command=app.settings)
+        settings.pack(side="left")
+        self.note = ttk.Label(foot, style="Fineprint.TLabel", justify="left")
+        self.note.pack(side="left", padx=(12, 0))
+        for var in (app.merging, app.mode_var):  # never dropped: this screen lasts as long as the window
+            var.trace_add("write", self.show_note)
+        self.show_note()
+        wrapped += [(hero, left, 0, 9999), (lead, left, 0, 460), (self.status, left, 0, 9999),
+                    (self.note, left, settings.winfo_reqwidth() + 16, 9999)]
+
+        head = ttk.Frame(aside, style="Side.TFrame")
+        head.pack(fill="x", pady=(0, 6))
+        ttk.Label(head, text="SETUP", style="Caps.Side.TLabel").pack(side="left")
+        ttk.Button(head, text="Re-check", style="Link.Side.TButton", takefocus=False, command=self.check).pack(
+            side="right")
+        self.checks = [self.check_row(aside, title) for title in self.CHECKS]
+        for row in self.checks:
+            wrapped.append((row.problem, aside, 36, 9999))  # beside it: the bullet, and a little to spare
+        rights = self.check_row(aside, "Merge rights")  # not one of the checks: there's no repo to ask about yet
+        self.show_check(rights, "", rights.title.cget("text"), "checked in Settings")
+
+        ttk.Label(aside, text="WHAT COUNTS AS A GO-AHEAD", style="Caps.Side.TLabel").pack(anchor="w", pady=(26, 6))
+        chip = app.image("step", lambda p: draw(((p["field-border"], 12, (SQUARE,)), (p["win"], 10.2, (SQUARE,))),
+                                                22, 22))
+        for at, (title, text) in enumerate(self.STEPS, 1):
+            step = ttk.Frame(aside, style="Side.TFrame")
+            step.pack(fill="x", pady=5)
+            step.columnconfigure(1, weight=1)
+            ttk.Label(step, text=at, image=chip, compound="center", style="Step.Side.TLabel").grid(
+                row=0, column=0, rowspan=2, sticky="n", padx=(0, 10), pady=(1, 0))
+            ttk.Label(step, text=title, style="Bold.Side.TLabel").grid(row=0, column=1, sticky="w")
+            body = ttk.Label(step, text=text, style="Side.TLabel", justify="left")
+            body.grid(row=1, column=1, sticky="w", pady=(1, 0))
+            wrapped.append((body, aside, 38, 9999))
+
+        def wrap(event):
+            """Wrap each paragraph to the column it's in. A label can't: it only knows the width it asked for."""
+            for label, container, beside, widest in wrapped:
+                if container is event.widget:
+                    pad = container.cget("padding")
+                    room = event.width - sum(int(str(pad[at])) for at in (0, 2)) - beside
+                    label.configure(wraplength=max(120, min(room, widest)))
+            self.refit()
+
+        for label, _, _, _ in wrapped:  # narrow until first measured, so no paragraph holds its column wide
+            label.configure(wraplength=240)
+        left.bind("<Configure>", wrap)
+        aside.bind("<Configure>", wrap)
+
+    def check_row(self, parent, title):
+        """A setup check: its bullet, title and what it found, over what's wrong if it failed."""
+        row = ttk.Frame(parent, style="Side.TFrame")
+        row.pack(fill="x", pady=4)
+        row.columnconfigure(1, weight=1)
+        row.bullet = ttk.Label(row, style="Side.TLabel")
+        row.bullet.grid(row=0, column=0, padx=(0, 10))
+        row.title = ttk.Label(row, text=title, style="Side.TLabel")
+        row.title.grid(row=0, column=1, sticky="w")
+        row.found = ttk.Label(row, style="Muted.Side.TLabel")
+        row.found.grid(row=0, column=2, sticky="e")
+        row.problem = ttk.Label(row, style="Problem.Side.TLabel", justify="left")
+        return row
+
+    def show_check(self, row, ok, title, note):
+        """One check as setup_checks() gives it. ok is None while it's still being asked, "" if it never is."""
+        row.bullet.configure(image=check_bullet(self.app, ok))
+        row.title.configure(text=title)
+        row.found.configure(text="" if ok is False else note)
+        row.problem.configure(text=note)
+        if ok is False:  # what's wrong is a sentence: it goes under the title, where it can wrap
+            row.problem.grid(row=1, column=1, columnspan=2, sticky="w", pady=(1, 0))
+        else:
+            row.problem.grid_remove()
+        self.refit()
+
+    def check(self):
+        """Run the setup checks afresh, off the Tk thread. Each says it's checking until they answer."""
+        def run():
+            try:
+                results = setup_checks()
+            except Exception as e:  # as poll_all(): say so rather than leave the rows checking for good
+                results = [(False, title, f"check crashed: {e!r}") for title in self.CHECKS]
+            self.app.events.put(("tell", "checks", results))
+
+        for row in self.checks:
+            self.show_check(row, None, row.title.cget("text"), "checking…")
+        self.app.bg(run)
+
+    def say(self, text=HINT, style="Fineprint.TLabel"):
+        self.status.configure(text=text, style=style)
+        self.refit()
+
+    def show_note(self, *_):
+        app = self.app
+        mode = {value: label for label, value in MODES}.get(app.mode_var.get(), MODES[0][0])
+        self.note.configure(text=f"Auto-merge is {'on' if app.merging.get() else 'off'}, in {mode} mode."
+                                 " Change either in the toolbar or in Settings.")
+
+    def add(self, _event=None):
+        target = self.app.new_repo.get().strip()
+        if target:
+            self.say(f"Adding {target}…")
+            self.app.add()
 
 
 def gui(targets, mode, interval):
