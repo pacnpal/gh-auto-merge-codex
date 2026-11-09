@@ -506,6 +506,16 @@ def notify(title, body):
     return not r.returncode
 
 
+def merged_today(tally, today, repo=None):
+    """The merges seen today, as (day, {repo: how many}): tally, with one more for repo if there is one.
+    A tally from another day starts over, so the count is of merges since midnight."""
+    day, counts = tally
+    counts = dict(counts) if day == today else {}
+    if repo:
+        counts[repo] = counts.get(repo, 0) + 1
+    return today, counts
+
+
 # The LaunchAgent's label (the app's bundle id), and where Windows lists what to run at sign-in.
 LOGIN_LABEL = "com.pacnpal.prherd"
 LOGIN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
@@ -604,6 +614,7 @@ def load_settings():
         "sidebar": sidebar if type(sidebar) is int and SIDEBAR[0] <= sidebar <= SIDEBAR[1] else 232,
         "log": s.get("log") is not False,
         "notify": checked_notify(s.get("notify")),
+        "menubar": s.get("menubar") is not False,
     }
 
 
@@ -723,6 +734,7 @@ VIEWS = {
 # The activity log's kinds: each one's tone (as in VERDICTS) and the words that mark a line as it. The first match
 # wins, so a conflict comment that failed is an error. A line with none of them is "info".
 KINDS = (
+    ("notice", "acc", ("notified:",)),  # first: the rest of such a line is a PR's title, which can say anything
     ("error", "err", ("failed", "crashed", "can't")),
     ("conflict", "bad", ("merge conflict",)),
     ("review", "warn", ("asked codex", "codex is reviewing")),
@@ -935,6 +947,10 @@ def theme(root, dark, appearance="system"):
     over = [("disabled", faded), ("pressed", mix(accent, "#000000", 0.26)), ("active", mix(accent, "#000000", 0.14))]
     s.map("Accent.TButton", background=over, lightcolor=over, darkcolor=over, bordercolor=over,
           foreground=[("disabled", mix("#FFFFFF", faded, 0.6 if dark else 0.3))])
+    # The heading's stat chips: a hairline box around a small label with its number under it.
+    s.configure("Stat.TFrame", background=p["chip-border"])
+    s.configure("Stat.TLabel", foreground=p["muted"], font=f["small"])
+    s.configure("Value.Stat.TLabel", foreground=p["text"], font=f["head"])
     # A scrollbar is a thumb and nothing else: no arrows, no visible trough.
     thumb = mix(p["win"], p["faint"], 0.5)
     s.layout("Vertical.TScrollbar", [("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
@@ -1507,6 +1523,193 @@ class MergeSheet:
         app.tree.focus_set()
 
 
+class MenuBar:
+    """The macOS menu bar item: the app's mark beside how many PRs are ready to merge and how many need attention,
+    over a menu with the same counts and the few things worth doing without the window.
+
+    Tk can't make one. But on macOS Tk already runs an NSApplication in this process, and ctypes reaches the
+    Objective-C runtime, so this makes an NSStatusItem by hand. Whatever goes wrong raises, from __init__ on: the
+    caller then goes without a menu bar item. Call it on the Tk thread only, which is Cocoa's main thread.
+    """
+
+    # What the menu's items do. An item's tag is its action's place in these.
+    ACTIONS = ("ready", "attention", "poll", "merging", "open", "settings", "quit")
+    # The app's mark, after assets/prherd.png: two PRs joining one branch. Black, as a template image: macOS colors
+    # those for a light or a dark menu bar.
+    GLYPH = (("#000000", 1.9, ((6.9, 8.1, 16.7, 12), (6.9, 15.9, 16.7, 12))),
+             ("#000000", 4.6, ((6.9, 8.1, 6.9, 8.1), (6.9, 15.9, 6.9, 15.9))),
+             ("#000000", 5.8, ((16.7, 12, 16.7, 12),)))
+    c = None  # ctypes, once load() has what it needs; then objc is libobjc and Target the class the menu's items call
+    live = {}  # each item's Objective-C target -> its MenuBar, for chose()
+
+    @classmethod
+    def load(cls):
+        """Load libobjc and make the Objective-C class the menu's items call. Once: a class can be registered only
+        once, and its method has to outlive every item that could still call it."""
+        if cls.c:
+            return
+        import ctypes as c
+        import ctypes.util
+        objc = c.cdll.LoadLibrary(ctypes.util.find_library("objc") or "/usr/lib/libobjc.A.dylib")
+        for name, gives, takes in (("objc_getClass", c.c_void_p, [c.c_char_p]),
+                                   ("sel_registerName", c.c_void_p, [c.c_char_p]),
+                                   ("objc_allocateClassPair", c.c_void_p, [c.c_void_p, c.c_char_p, c.c_size_t]),
+                                   ("class_addMethod", c.c_bool, [c.c_void_p, c.c_void_p, c.c_void_p, c.c_char_p]),
+                                   ("objc_registerClassPair", None, [c.c_void_p])):
+            getattr(objc, name).restype, getattr(objc, name).argtypes = gives, takes
+
+        def chosen(target, _selector, sender):  # Cocoa calls this, so nothing may be raised out of it
+            try:
+                cls.chose(target, cls.send(c.c_long, sender, "tag"))
+            except Exception:
+                pass
+
+        class Size(c.Structure):  # an NSSize
+            _fields_ = [("width", c.c_double), ("height", c.c_double)]
+
+        method = c.CFUNCTYPE(None, c.c_void_p, c.c_void_p, c.c_void_p)(chosen)
+        # Named for this Python class, so a second copy of this module in the process would get its own.
+        made = objc.objc_allocateClassPair(objc.objc_getClass(b"NSObject"), f"PrherdMenuTarget{id(cls):x}".encode(), 0)
+        if not made or not objc.class_addMethod(made, objc.sel_registerName(b"chose:"), method, b"v@:@"):
+            raise RuntimeError("can't make the Objective-C class for the menu")
+        objc.objc_registerClassPair(made)
+        cls.objc, cls.Target, cls.Size, cls.method, cls.c = objc, made, Size, method, c  # method: kept, or it's freed
+
+    @classmethod
+    def send(cls, restype, obj, selector, *args):
+        """The Objective-C message [obj selector], returning the ctypes type restype. objc_msgSend has to be called
+        as a C function of exactly the method's signature, so it's cast to one each time: a bool, a float, bytes
+        and a struct go as what they are, and anything else (an object, a selector, an integer) as a pointer."""
+        c = cls.c
+        kinds = {bool: c.c_bool, float: c.c_double, bytes: c.c_char_p}
+        takes = [type(arg) if isinstance(arg, c.Structure) else kinds.get(type(arg), c.c_void_p) for arg in args]
+        function = c.CFUNCTYPE(restype, c.c_void_p, c.c_void_p, *takes)(("objc_msgSend", cls.objc))
+        return function(obj, cls.objc.sel_registerName(selector.encode()), *args)
+
+    @classmethod
+    def msg(cls, obj, selector, *args):
+        """A message that answers with an object. Never with none: a message to nothing answers nothing, quietly."""
+        if isinstance(obj, str):
+            obj = cls.objc.objc_getClass(obj.encode())  # a class, by name
+        found = cls.send(cls.c.c_void_p, obj, selector, *args) if obj else None
+        if not found:
+            raise RuntimeError(f"Cocoa has no {selector}")
+        return found
+
+    @classmethod
+    def tell(cls, obj, selector, *args):
+        """A message with no answer."""
+        cls.send(None, obj, selector, *args)
+
+    @classmethod
+    def chose(cls, target, tag):
+        """A menu item was chosen: tell its MenuBar which. This is inside Cocoa's event handling, where Tk mustn't
+        be called, so post() can only take note."""
+        bar = cls.live.get(target)
+        if bar and 0 <= tag < len(cls.ACTIONS):
+            bar.post(cls.ACTIONS[tag])
+
+    @staticmethod
+    def words(ready, attention, merged):
+        """What the counts are shown as: beside the mark, when the pointer rests on it, and as the menu's lines."""
+        lines = [f"{ready} ready to merge", f"{attention} need{'s' if attention == 1 else ''} attention",
+                 f"{merged} merged today"]
+        # U+FE0E: the warning sign as text, in the menu bar's color, not as an emoji
+        title = "  ".join(filter(None, (str(ready) if ready else "", f"\u26a0\ufe0e {attention}" if attention else "")))
+        return title, f"prherd: {', '.join(lines)}", lines
+
+    def __init__(self, post, settings=False):
+        """post(action) is told which of ACTIONS was chosen from the menu, which has Settings… only if asked."""
+        self.post, self.shown, self.item, self.target, self.held = post, None, None, None, []
+        self.load()
+        try:
+            self.pooled(self.build, settings)
+        except Exception:
+            self.close()
+            raise
+
+    def pooled(self, work, *args):
+        """work(*args) inside an autorelease pool of its own, so what Cocoa hands out along the way is freed after."""
+        pool = self.msg(self.msg("NSAutoreleasePool", "alloc"), "init")
+        try:
+            work(*args)
+        finally:
+            self.tell(pool, "drain")
+
+    def text(self, string):
+        return self.msg("NSString", "stringWithUTF8String:", string.encode())
+
+    def hold(self, obj):
+        """obj, which is this object's to release: close() does."""
+        self.held.append(obj)
+        return obj
+
+    def build(self, settings):
+        msg, tell = self.msg, self.tell
+        self.target = self.hold(msg(msg(self.Target, "alloc"), "init"))
+        self.live[self.target] = self
+        # -1.0: as wide as what it shows. The status bar doesn't keep the item alive, so this does.
+        self.item = self.hold(msg(msg(msg("NSStatusBar", "systemStatusBar"), "statusItemWithLength:", -1.0), "retain"))
+        self.button = msg(self.item, "button")
+        png = draw(self.GLYPH, 36, 36)  # twice the size it's shown at, for a Retina screen
+        image = self.hold(msg(msg("NSImage", "alloc"), "initWithData:",
+                              msg("NSData", "dataWithBytes:length:", png, len(png))))
+        tell(image, "setSize:", self.Size(18, 18))
+        tell(image, "setTemplate:", True)
+        tell(self.button, "setImage:", image)
+        tell(self.button, "setImagePosition:", 2)  # NSImageLeft: the counts come after the mark
+        menu = self.hold(msg(msg("NSMenu", "alloc"), "init"))
+        tell(menu, "setAutoenablesItems:", False)  # or Cocoa would switch on the lines that are only there to be read
+
+        def add(title, action=None):
+            chose = self.objc.sel_registerName(b"chose:") if action else None
+            item = self.hold(msg(msg("NSMenuItem", "alloc"), "initWithTitle:action:keyEquivalent:", self.text(title),
+                                 chose, self.text("")))
+            if action:
+                tell(item, "setTarget:", self.target)
+                tell(item, "setTag:", self.ACTIONS.index(action))
+            tell(item, "setEnabled:", bool(action))
+            tell(menu, "addItem:", item)
+            return item
+
+        rule = lambda: tell(menu, "addItem:", msg("NSMenuItem", "separatorItem"))
+        # The counts, which show() words. The first two open the window on the view they count.
+        self.lines = [add("", "ready"), add("", "attention"), add("")]
+        rule()
+        add("Poll now", "poll")
+        self.switch = add("Auto-merge", "merging")
+        rule()
+        add("Open prherd", "open")
+        if settings:
+            add("Settings…", "settings")
+        rule()
+        add("Quit prherd", "quit")
+        tell(self.item, "setMenu:", menu)
+
+    def show(self, ready, attention, merged, merging):
+        """Say the counts, and whether Auto-merge is on. It's called often, and Cocoa is told only of a change."""
+        if (ready, attention, merged, merging) != self.shown:
+            self.pooled(self.say, ready, attention, merged, merging)
+            self.shown = ready, attention, merged, merging
+
+    def say(self, ready, attention, merged, merging):
+        title, tip, lines = self.words(ready, attention, merged)
+        self.tell(self.button, "setTitle:", self.text(f" {title}" if title else ""))
+        self.tell(self.button, "setToolTip:", self.text(tip))
+        for line, words in zip(self.lines, lines):
+            self.tell(line, "setTitle:", self.text(words))
+        self.tell(self.switch, "setState:", int(merging))  # a tick beside it while it's on
+
+    def close(self):
+        """Take the item out of the menu bar. Fine to call twice, or on one that was never finished."""
+        self.live.pop(self.target, None)
+        if self.item:
+            self.tell(self.msg("NSStatusBar", "systemStatusBar"), "removeStatusItem:", self.item)
+        for obj in self.held:
+            self.tell(obj, "release")
+        self.item, self.held = None, []
+
+
 class App:
     """The window: a toolbar and banners over a sidebar, the PR table and the activity log.
 
@@ -1540,6 +1743,10 @@ class App:
         self.details = {}  # repo -> {PR number: its verdict_detail()} from that poll, for the detail panel's timeline
         self.sheet = None  # the Merge now sheet, while it's open
         self.appearance = saved["appearance"]
+        # What notice() compares each poll with. Workers keep these, one at a time: whoever holds self.noticing.
+        self.seen, self.streaks, self.newest, self.noticing = {}, {}, {}, threading.Lock()
+        self.merged = ("", {})  # see merged_today()
+        self.menubar, self.status = saved["menubar"], None  # the setting, and the menu bar item while there is one
         self.dark = None  # the palette in use; None until the first theme()
         self.busy = False
         self.timer = None  # the tick that's waiting
@@ -1587,6 +1794,7 @@ class App:
         self.bg(lambda: self.events.put(("account", whoami())))
         self.first_run = FirstRun(self, waiting=bool(saved["repos"] or targets))
         root.protocol("WM_DELETE_WINDOW", self.close)
+        self.set_menubar(self.menubar)
         self.retheme()
         self.show_state()
         self.render()
@@ -1765,6 +1973,23 @@ class App:
         head = self.heading = ttk.Frame(self.main, padding=(24, 16, 24, 14))
         head.pack(fill="x")
         ttk.Frame(self.main, style="Rule.TFrame", height=1).pack(fill="x")
+        # The stat chips, on the right. Packed before the text, so they keep their width; fit_stats() leaves out
+        # those that would crowd it.
+        self.stats = ttk.Frame(head)
+        self.chips, self.fitted = {}, None
+        for key, label, color in (("ready", "Ready", "ok-dot"), ("reviewing", "Reviewing", "warn-dot"),
+                                  ("attention", "Attention", "bad-dot"), ("merged", "Merged today", "acc-dot")):
+            chip = ttk.Frame(self.stats, style="Stat.TFrame", padding=1)
+            box = ttk.Frame(chip, padding=(11, 5, 12, 5))
+            box.pack(fill="both", expand=True)
+            box.columnconfigure(0, minsize=62)
+            square = self.image(("stat", color), lambda p, color=color: draw(
+                ((p[color], 12, ((6, 6, 18, 6, 18, 18, 6, 18, 6, 6), (6, 12, 18, 12))),), 7, 7))
+            ttk.Label(box, text=label, image=square, compound="left", style="Stat.TLabel").grid(sticky="w")
+            value = ttk.Label(box, text="0", style="Value.Stat.TLabel")
+            value.grid(sticky="w")
+            self.chips[key] = chip, value
+        head.bind("<Configure>", self.fit_stats)
         self.title = ttk.Label(head, style="Title.TLabel")
         self.title.pack(anchor="w")
         self.subtitle = ttk.Label(head, style="Muted.TLabel")
@@ -2026,6 +2251,7 @@ class App:
             self.empty.place(relx=0.5, rely=0.45, anchor="center")
         self.show_sidebar()
         self.tell("repos")
+        self.show_stats()
 
     def show_sidebar(self):
         """The sidebar's counts, its repo rows and which of its rows are chosen."""
@@ -2089,6 +2315,45 @@ class App:
         merging = self.live["merging"]
         self.badge.configure(text="Live" if merging else "Watching", style="Live.TLabel" if merging else "Idle.TLabel",
                              image=self.dot("ok-dot" if merging else "open-dot", 6))
+        self.show_stats()  # the menu bar item says whether Auto-merge is on
+
+    @staticmethod
+    def today():
+        return time.strftime("%F")
+
+    def show_stats(self):
+        """The heading's stat chips, counting what the sidebar's views count, and the menu bar item, which counts
+        every repo's."""
+        self.merged = merged_today(self.merged, self.today())  # so the count starts over at midnight
+        counts = lambda key, vs: sum(v in VIEWS[key]["verdicts"] for v in vs)
+        everywhere = [v for repo in self.repos for _, v in self.rows.get(repo, [])]
+        here = everywhere if self.only is None else [v for _, v in self.rows.get(self.only, [])]
+        for key, (_, value) in self.chips.items():
+            value.configure(text=counts(key, here) if key != "merged" else sum(
+                count for repo, count in self.merged[1].items() if self.only in (None, repo)))
+        self.fit_stats()
+        self.status_do("show", counts("ready", everywhere), counts("attention", everywhere),
+                       sum(self.merged[1].values()), self.live["merging"])
+
+    def fit_stats(self, _event=None):
+        """Show the stat chips there's room for beside the heading's text. Merged today is the last to go: it's the
+        one the sidebar doesn't also say."""
+        gap = 8
+        room = self.heading.winfo_width() - 48 - 2 * gap - max(self.title.winfo_reqwidth(),
+                                                                self.subtitle.winfo_reqwidth())
+        shown = list(self.chips)
+        for key in ("reviewing", "attention", "ready", "merged"):
+            if sum(self.chips[chip][0].winfo_reqwidth() + gap for chip in shown) > room:
+                shown.remove(key)
+        if shown != self.fitted:
+            self.fitted = shown
+            for chip, _ in self.chips.values():
+                chip.pack_forget()
+            for key in shown:
+                self.chips[key][0].pack(side="left", padx=(gap, 0))
+            self.stats.pack_forget()  # a frame left with nothing packed in it keeps its last size
+            if shown:
+                self.stats.pack(side="right", before=self.title)
 
     def show_log(self, at, msg):
         box, kind = self.logbox, kind_of(msg)
@@ -2181,22 +2446,47 @@ class App:
         self.show(repo)
 
     def refresh(self, repo):
-        details = {}
+        details, started = {}, time.monotonic()
         try:  # show it now; merge on the next tick
-            self.events.put(("prs", repo, poll(repo, self.log, lambda: None, details), details))
+            rows = poll(repo, self.log, lambda: None, details)
+            self.events.put(("prs", repo, rows, details))
+            self.notice(repo, started, rows)
         except Exception as e:
             self.log(f"{repo}: poll crashed; retrying next interval ({e!r})")
 
     def show(self, repo):
         self.events.put(("repo", repo))
+        with self.noticing:  # newly watched, or watched again: what its PRs did while it wasn't is no news
+            self.seen.pop(repo, None)
         self.refresh(repo)
+
+    def notice(self, repo, started, rows):
+        """Post the notifications a poll of repo is worth, and count its merges. The poll began at started, by
+        time.monotonic(). This runs gh (notices() asks about each PR that left the list), so on a worker thread."""
+        with self.noticing:  # a tick's poll and a refresh can have the same repo at once
+            # A list older than the one last compared would bring back a PR that merged in between, to be
+            # announced again when it next went.
+            if started < self.newest.get(repo, 0):
+                return
+            found = notices(repo, self.seen.get(repo), rows, self.streaks, state=pr_state)
+            if rows is not None:  # a listing that failed is no list to compare the next one with
+                self.newest[repo] = started
+                self.seen[repo] = {pr["number"]: (pr, v) for pr, v in rows}
+        for kind, title, body in found:
+            if kind == "merged":  # counted whether or not it's announced
+                self.events.put(("merged", repo))
+            if self.notify.get(kind) and repo in self.repos:
+                how = "notified" if notify(title, body) else "can't notify"
+                self.log(f"{repo}: {how}: {title} · {body.partition(' · ')[2]}")
 
     def poll_all(self, snapshot):
         try:
             for repo in snapshot:
                 mode = lambda repo=repo: self.live["mode"] if self.live["merging"] and repo in self.repos else None
-                details = {}
-                self.events.put(("prs", repo, poll(repo, self.log, mode, details), details))
+                details, started = {}, time.monotonic()
+                rows = poll(repo, self.log, mode, details)
+                self.events.put(("prs", repo, rows, details))
+                self.notice(repo, started, rows)
         except Exception as e:  # e.g. gh missing; log it rather than kill the thread silently
             self.log(f"poll crashed; retrying next interval ({e!r})")
         finally:
@@ -2260,6 +2550,11 @@ class App:
                 self.show_account(rest[0])
             elif kind == "tell":
                 self.tell(*rest)
+            elif kind == "merged":
+                self.merged = merged_today(self.merged, self.today(), rest[0])
+                self.show_stats()
+            elif kind == "menu":
+                self.menu_chose(rest[0])
         if changed:
             self.render()
         self.root.after(200, self.drain)
@@ -2358,6 +2653,57 @@ class App:
         self.repo_menu.tk_popup(event.x_root, event.y_root)
         return "break"
 
+    # The menu bar item.
+
+    def set_menubar(self, on):
+        """Show the menu bar item, or take it away, and keep that as the setting. Only macOS has one. If it can't
+        be made there, the window goes without it and the log says why."""
+        changed, self.menubar = on != self.menubar, on
+        self.status_do("close")
+        self.status = None
+        if on and sys.platform == "darwin":
+            try:  # whatever went wrong, it's an extra: the window isn't
+                self.status = MenuBar(lambda action: self.events.put(("menu", action)), settings=True)
+            except Exception as e:
+                self.log(f"no menu bar item: {e!r}")
+        self.show_stats()
+        if changed:
+            self.save()
+
+    def status_do(self, what, *args):
+        """Call the menu bar item, if there is one. If it fails it's taken away, and the window carries on."""
+        if self.status:
+            try:
+                getattr(self.status, what)(*args)
+            except Exception as e:
+                broken, self.status = self.status, None
+                self.log(f"menu bar item failed, so it's off: {e!r}")
+                try:  # better gone than left saying counts that are no longer so
+                    broken.close()
+                except Exception:
+                    pass
+
+    def menu_chose(self, action):
+        """Do what was chosen from the menu bar item's menu. From drain(): the choice itself came inside Cocoa's
+        event handling, where Tk can't be called."""
+        if action == "poll":
+            self.poll_now()
+        elif action == "merging":
+            self.merging.set(not self.merging.get())
+            self.control(merging=self.merging.get())
+        elif action in ("open", "settings", "ready", "attention"):
+            if action in VIEWS:  # one of the menu's counts: list what it counted, which was in every repo
+                self.only = None
+                self.query.set("")
+                self.pick_view(action)
+            self.root.deiconify()  # wherever it is: minimised, or behind other windows
+            self.root.lift()
+            self.root.focus_force()  # and behind another app: on macOS this makes prherd the active one
+            if action == "settings":
+                self.settings()
+        elif action == "quit":
+            self.root.after_idle(self.close)  # once drain() is done with the window
+
     def save(self):
         if self.sidebar.winfo_width() > 1:  # it's 1 until the window is drawn
             self.sidebar_width = min(max(self.sidebar.winfo_width(), SIDEBAR[0]), SIDEBAR[1])
@@ -2366,12 +2712,13 @@ class App:
                            "merging": self.merging.get(), "geometry": self.root.geometry(),
                            "detail": self.detail.measure(),
                            "appearance": self.appearance, "view": self.view, "sidebar": self.sidebar_width,
-                           "log": self.log_open, "notify": self.notify})
+                           "log": self.log_open, "notify": self.notify, "menubar": self.menubar})
         except OSError as e:
             self.log(f"can't save settings to {CONFIG}: {e}")
 
     def close(self):
         self.save()
+        self.status_do("close")
         self.root.destroy()
 
 
@@ -2654,6 +3001,10 @@ class Settings:
         self.login = tk.BooleanVar(value=login_item_enabled())
         row = self.row(polling, "Open at login", "Start watching as soon as you sign in.")
         self.switch(row, self.login, self.set_login)
+        if sys.platform == "darwin":  # only macOS has a menu bar item to show
+            self.in_menubar = tk.BooleanVar(value=app.menubar)
+            row = self.row(polling, "Show in menu bar", "Counts of ready and blocked PRs, and Poll now, from any app.")
+            self.switch(row, self.in_menubar, lambda: app.set_menubar(self.in_menubar.get()))
 
         saved = self.card(self.section(pane, "Saved settings"))
         home = os.path.expanduser("~")
