@@ -33,11 +33,12 @@ newer, authenticated with merge rights on the repos.
 - **Download an app** from [Releases](https://github.com/pacnpal/prherd/releases/latest):
   a `.dmg` for macOS (Apple silicon), a `.zip` for Windows (x64) or a `.tar.gz` for
   Linux (x64). Each is self-contained, so it needs no Python. The macOS app finds a `gh`
-  installed with Homebrew even when opened from Finder.
+  installed with Homebrew even when opened from Finder. The Windows app isn't code-signed, so
+  the first time it runs, choose **More info**, then **Run anyway**.
 - **Run from source:** Python 3 with tkinter (the python.org macOS installer includes
   it), then `./prherd.py`.
 
-Releases are built, signed and published by GitHub Actions; see
+Releases are built and published by GitHub Actions, with the macOS app signed and notarized; see
 [docs/releasing.md](docs/releasing.md).
 
 ## Usage
