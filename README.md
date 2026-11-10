@@ -31,8 +31,13 @@ Every way of running prherd needs `gh` ([GitHub CLI](https://cli.github.com)) 2.
 newer, authenticated with merge rights on the repos.
 
 - **Download an app** from [Releases](https://github.com/pacnpal/prherd/releases/latest):
-  a `.dmg` for macOS (Apple silicon), a `.zip` for Windows (x64) or a `.tar.gz` for
-  Linux (x64). Each is self-contained, so it needs no Python. The macOS app finds a `gh`
+  - **macOS:** a `.dmg` for Apple silicon (`arm64`) or Intel (`x64`).
+  - **Windows:** a `.zip` for x64, ARM (`arm64`) or 32-bit (`x86`).
+  - **Linux (x64 or arm64):** a `.deb` (Debian, Ubuntu), `.rpm` (Fedora, RHEL, openSUSE), `.pkg.tar.zst`
+    (Arch), or an `.AppImage` or `.tar.gz` for anything else. They need glibc 2.31 or newer (Debian 11,
+    Ubuntu 20.04, RHEL 9 and later).
+
+  Each is self-contained, so it needs no Python. The macOS app finds a `gh`
   installed with Homebrew even when opened from Finder. The Windows app isn't code-signed, so
   the first time it runs, choose **More info**, then **Run anyway**.
 - **Run from source:** Python 3 with tkinter (the python.org macOS installer includes
