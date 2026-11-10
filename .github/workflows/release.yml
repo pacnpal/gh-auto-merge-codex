@@ -1,7 +1,7 @@
 name: Release
 
-# Builds prherd for macOS, Windows and Linux, signs it, and publishes a GitHub
-# release. pacnpal/free-ai-release-notes has a free OpenRouter model write the title
+# Builds prherd for macOS, Windows and Linux, signs and notarizes the macOS app, and
+# publishes a GitHub release. The Windows build is not code-signed (docs/releasing.md). pacnpal/free-ai-release-notes has a free OpenRouter model write the title
 # and notes from every commit since the last v* tag.
 #
 # The version comes from whatever triggered the run:
@@ -13,9 +13,9 @@ name: Release
 #
 # Secrets (see docs/releasing.md): MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD,
 # MACOS_SIGNING_IDENTITY, APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID,
-# WINDOWS_CERTIFICATE_PFX, WINDOWS_CERTIFICATE_PASSWORD, OPENROUTER_API_KEY (required).
-# A release fails without the signing secrets unless the repository variable
-# ALLOW_UNSIGNED_RELEASES is 'true'. Pull request builds are always ad-hoc/unsigned.
+# OPENROUTER_API_KEY (required). A release fails without the macOS signing secrets
+# unless the repository variable ALLOW_UNSIGNED_RELEASES is 'true'. Pull request builds
+# are always ad-hoc signed.
 
 on:
   push:
@@ -236,39 +236,13 @@ jobs:
         if: always() && runner.os == 'macOS'
         run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
 
-      # ---- Windows: Authenticode, zip ----------------------------------------------
-      - name: Sign and package (Windows)
+      # ---- Windows: zip. Not code-signed, by choice: see docs/releasing.md ---------
+      - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          PFX: ${{ secrets.WINDOWS_CERTIFICATE_PFX }}
-          PFX_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |-
           $ErrorActionPreference = 'Stop'
-          $exe = 'dist\prherd\prherd.exe'
           New-Item -ItemType Directory -Force out | Out-Null
-          $sign = $env:RELEASE -eq 'true' -and $env:PFX
-          if ($env:RELEASE -eq 'true' -and -not $sign -and $env:ALLOW_UNSIGNED -ne 'true') {
-            Write-Output '::error::a release needs WINDOWS_CERTIFICATE_PFX and WINDOWS_CERTIFICATE_PASSWORD (or ALLOW_UNSIGNED_RELEASES=true)'
-            exit 1
-          }
-          if ($sign) {
-            $pfxPath = Join-Path $env:RUNNER_TEMP 'cert.pfx'
-            [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:PFX))
-            $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
-              Sort-Object FullName | Select-Object -Last 1
-            try {
-              & $signtool.FullName sign /f $pfxPath /p $env:PFX_PASSWORD /fd SHA256 `
-                /tr http://timestamp.digicert.com /td SHA256 /d prherd $exe
-              if ($LASTEXITCODE) { exit $LASTEXITCODE }
-              & $signtool.FullName verify /pa $exe
-              if ($LASTEXITCODE) { exit $LASTEXITCODE }
-            } finally {
-              Remove-Item -Force $pfxPath
-            }
-          } else {
-            Write-Output '::warning::Windows build is unsigned; SmartScreen will warn on first run'
-          }
           Compress-Archive -Path 'dist\prherd' -DestinationPath "out\prherd-$($env:VERSION)-windows-x64.zip"
 
       # ---- Linux: tarball ----------------------------------------------------------
@@ -344,7 +318,8 @@ jobs:
           | Linux (x64) | \`prherd-$VERSION-linux-x64.tar.gz\` |
 
           prherd runs the [GitHub CLI](https://cli.github.com) (\`gh\` 2.48 or newer), signed in with merge
-          rights on the repos you watch. Checksums are in \`SHA256SUMS.txt\`.
+          rights on the repos you watch. Checksums are in \`SHA256SUMS.txt\`. The Windows build isn't
+          code-signed, so SmartScreen asks first: choose **More info**, then **Run anyway**.
           EOF
           } > "$RUNNER_TEMP/notes.md"
           { echo "## $TITLE"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
