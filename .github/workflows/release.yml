@@ -1,42 +1,40 @@
 name: Release
 
-# Builds prherd for macOS, Windows and Linux, signs and notarizes the macOS app, and
-# publishes a GitHub release. The Windows build is not code-signed (docs/releasing.md). pacnpal/free-ai-release-notes has a free OpenRouter model write the title
-# and notes from every commit since the last v* tag.
+# Builds prherd for every platform it ships on, signs and notarizes the macOS apps, and
+# publishes a GitHub release. pacnpal/free-ai-release-notes has a free OpenRouter model write
+# the title and notes from every commit since the last v* tag.
 #
-# The version comes from whatever triggered the run:
-#   - pushing a tag v1.2.0          -> releases 1.2.0 from that tag
-#   - running it by hand            -> releases the version you type (tags v<version>)
-#   - a pull request touching the build -> builds 0.0.0-pr.<number>+<sha> and
-#     uploads it as a workflow artifact, with no release
-# A version with a -suffix (1.3.0-rc.1) is published as a prerelease.
+# Only ever run by hand (Actions -> Release -> Run workflow): never on a push, a tag or a
+# merge. The version is what you type; the run tags v<version> on the commit it ran on. A
+# version with a -suffix (1.3.0-rc.1) is published as a prerelease. "Dry run" builds, signs
+# and notarizes everything and writes the notes to the run summary, but publishes nothing.
+#
+# Builds:
+#   macOS    arm64 (Apple silicon) and x64 (Intel): signed, notarized .dmg
+#   Windows  x64, arm64 and x86 (32-bit): .zip, not code-signed (docs/releasing.md)
+#   Linux    x64 and arm64: .tar.gz, .deb, .rpm, .pkg.tar.zst (Arch) and .AppImage, built on
+#            Debian 11's glibc so they run on Debian 11+, Ubuntu 20.04+ and RHEL 9+
 #
 # Secrets (see docs/releasing.md): MACOS_CERTIFICATE_P12, MACOS_CERTIFICATE_PASSWORD,
 # MACOS_SIGNING_IDENTITY, APPLE_API_KEY, APPLE_API_KEY_ID, APPLE_API_ISSUER_ID,
-# OPENROUTER_API_KEY (required). A release fails without the macOS signing secrets
-# unless the repository variable ALLOW_UNSIGNED_RELEASES is 'true'. Pull request builds
-# are always ad-hoc signed.
+# OPENROUTER_API_KEY (required). A release fails without the macOS signing secrets unless
+# the repository variable ALLOW_UNSIGNED_RELEASES is 'true'.
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       version:
         description: Version to release, like 1.2.0 or 1.3.0-rc.1 (tagged v<version>)
         required: true
         type: string
-  pull_request:
-    paths:
-      - 'prherd.py'
-      - 'assets/**'
-      - 'packaging/**'
-      - 'test_*.py'
-      - '.github/workflows/release.yml'
+      dry-run:
+        description: Build, sign and notarize everything, but publish nothing
+        type: boolean
+        default: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ${{ github.workflow }}-${{ inputs.version }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -50,38 +48,29 @@ jobs:
       tag: ${{ steps.v.outputs.tag }}
       release: ${{ steps.v.outputs.release }}
       prerelease: ${{ steps.v.outputs.prerelease }}
-      target: ${{ steps.v.outputs.target }}
     steps:
-      - name: Version from the trigger
+      - name: Version from the input
         id: v
         env:
-          EVENT: ${{ github.event_name }}
           INPUT_VERSION: ${{ inputs.version }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_SHA: ${{ github.event.pull_request.head.sha }}
-          REF_NAME: ${{ github.ref_name }}
+          DRY_RUN: ${{ inputs.dry-run }}
           GH_TOKEN: ${{ github.token }}
         run: |-
-          case "$EVENT" in
-            push)              version="${REF_NAME#v}"; release=true;  target="$GITHUB_SHA" ;;
-            workflow_dispatch) version="${INPUT_VERSION#v}"; release=true; target="$GITHUB_SHA" ;;
-            pull_request)      version="0.0.0-pr.${PR_NUMBER}+${PR_SHA::7}"; release=false; target="$PR_SHA" ;;
-            *) echo "::error::unexpected trigger $EVENT"; exit 1 ;;
-          esac
-          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+          version="${INPUT_VERSION#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::'$version' isn't a version like 1.2.0 or 1.3.0-rc.1"; exit 1
           fi
           tag="v$version"
-          if [ "$EVENT" = workflow_dispatch ] && gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
-            echo "::error::tag $tag already exists; push it to release it, or pick a new version"; exit 1
+          release=true; [ "$DRY_RUN" = true ] && release=false
+          if [ "$release" = true ] && gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" >/dev/null 2>&1; then
+            echo "::error::tag $tag already exists; pick a new version"; exit 1
           fi
           prerelease=false; [[ "$version" == *-* ]] && prerelease=true
           {
-            echo "version=$version"; echo "tag=$tag"; echo "release=$release"
-            echo "prerelease=$prerelease"; echo "target=$target"
+            echo "version=$version"; echo "tag=$tag"; echo "release=$release"; echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
           echo "### prherd $version" >> "$GITHUB_STEP_SUMMARY"
-          echo "release: $release · prerelease: $prerelease · target: \`$target\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "publish: $release · prerelease: $prerelease · commit: \`$GITHUB_SHA\`" >> "$GITHUB_STEP_SUMMARY"
 
   test:
     name: Test
@@ -98,40 +87,6 @@ jobs:
       - name: Run tests
         run: python -m unittest -v test_prherd
 
-  notes-preview:
-    name: Preview release notes
-    # A pull request shows the notes its merge would get, in the run summary. Only for
-    # branches in this repo: a fork's run has no OPENROUTER_API_KEY.
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    needs: version
-    runs-on: ubuntu-latest
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-      TARGET: ${{ needs.version.outputs.target }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.version.outputs.target }}
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Write title and notes
-        id: notes
-        uses: pacnpal/free-ai-release-notes@76e53c73233b9dfc37cb0aff5ed6359d139b4c7c # v1.0.0
-        with:
-          openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
-          tag: v${{ needs.version.outputs.version }}
-          target: ${{ needs.version.outputs.target }}
-          tag-pattern: 'v[0-9]*'
-          title-template: '{tag} - {title}'
-          use-github-notes: false  # needs contents: write, which a pull request run doesn't get
-          append-changelog-link: false  # the preview's tag doesn't exist, so the link would 404
-      - name: Show them in the run summary
-        env:
-          TITLE: ${{ steps.notes.outputs.title }}
-          NOTES_FILE: ${{ steps.notes.outputs.notes-file }}
-        run: '{ echo "# $TITLE"; echo; cat "$NOTES_FILE"; } >> "$GITHUB_STEP_SUMMARY"'
-
   build:
     name: Build (${{ matrix.name }})
     needs: [version, test]
@@ -141,12 +96,16 @@ jobs:
       matrix:
         include:
           - { os: macos-latest, name: macos-arm64 }
-          - { os: windows-latest, name: windows-x64 }
-          # The oldest supported Ubuntu, so the bundled glibc runs on older distros too.
-          - { os: ubuntu-22.04, name: linux-x64 }
+          - { os: macos-15-intel, name: macos-x64 }
+          - { os: windows-latest, name: windows-x64, arch: x64 }
+          - { os: windows-11-arm, name: windows-arm64, arch: arm64 }
+          - { os: windows-latest, name: windows-x86, arch: x86 }
+          - { os: ubuntu-24.04, name: linux-x64 }
+          - { os: ubuntu-24.04-arm, name: linux-arm64 }
     env:
       VERSION: ${{ needs.version.outputs.version }}
       RELEASE: ${{ needs.version.outputs.release }}
+      NAME: ${{ matrix.name }}
       ALLOW_UNSIGNED: ${{ vars.ALLOW_UNSIGNED_RELEASES }}
     defaults:
       run:
@@ -157,21 +116,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # ---- macOS and Windows: the runner's own Python ------------------------------
       - name: Set up Python
+        if: runner.os != 'Linux'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
+          architecture: ${{ matrix.arch }}
           cache: pip
           cache-dependency-path: packaging/requirements.txt
 
-      - name: Check Tk is available
-        run: python -c "import tkinter; print('Tk', tkinter.TkVersion)"
-
-      - name: Install build tools
-        run: python -m pip install -r packaging/requirements.txt
-
       - name: Build
-        run: python packaging/build.py --version "$VERSION" --build-number "$GITHUB_RUN_NUMBER"
+        if: runner.os != 'Linux'
+        run: |-
+          python -c "import platform, tkinter; print(platform.machine(), platform.architecture()[0], 'Tk', tkinter.TkVersion)"
+          python -m pip install -r packaging/requirements.txt
+          python packaging/build.py --version "$VERSION" --build-number "$GITHUB_RUN_NUMBER"
 
       # ---- macOS: sign, notarize, DMG ------------------------------------------------
       - name: Sign, notarize and package (macOS)
@@ -186,10 +146,11 @@ jobs:
           API_ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
         run: |-
           app=dist/prherd.app
-          dmg="out/prherd-${VERSION}-macos-arm64.dmg"
+          dmg="out/prherd-${VERSION}-${NAME}.dmg"
           mkdir -p out
+          # A dry run signs and notarizes too, so it tests what a release would do.
           signed=false; notarize=false
-          if [ "$RELEASE" = true ] && [ -n "$P12" ] && [ -n "$IDENTITY" ]; then
+          if [ -n "$P12" ] && [ -n "$IDENTITY" ]; then
             signed=true
             [ -n "$API_KEY" ] && [ -n "$API_KEY_ID" ] && [ -n "$API_ISSUER" ] && notarize=true
           fi
@@ -215,13 +176,14 @@ jobs:
             codesign --force --deep --options runtime --entitlements packaging/entitlements.plist --sign - "$app"
           fi
           codesign --verify --deep --strict --verbose=2 "$app"
+          lipo -archs "$app/Contents/MacOS/prherd"
           "$app/Contents/MacOS/prherd" --version
 
           stage="$RUNNER_TEMP/dmg"
           mkdir -p "$stage"
           cp -R "$app" "$stage/"
           ln -s /Applications "$stage/Applications"
-          hdiutil create -quiet -volname "prherd ${VERSION%%+*}" -srcfolder "$stage" -ov -format UDZO "$dmg"
+          hdiutil create -quiet -volname "prherd ${VERSION}" -srcfolder "$stage" -ov -format UDZO "$dmg"
 
           if [ "$signed" = true ]; then
             codesign --force --timestamp --sign "$IDENTITY" "$dmg"
@@ -247,15 +209,21 @@ jobs:
         run: |-
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force out | Out-Null
-          Compress-Archive -Path 'dist\prherd' -DestinationPath "out\prherd-$($env:VERSION)-windows-x64.zip"
+          Compress-Archive -Path 'dist\prherd' -DestinationPath "out\prherd-$($env:VERSION)-$($env:NAME).zip"
 
-      # ---- Linux: tarball ----------------------------------------------------------
+      # ---- Linux: built on Debian 11's glibc, then packaged every common way ------
+      - name: Build (Linux)
+        if: runner.os == 'Linux'
+        # Debian 11's image already has Python and Tk, so nothing is installed from its archived apt
+        # repos. Run as the runner's user, so the next step can write over what this one made.
+        run: |-
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp -v "$PWD:/src" -w /src python:3.13-bullseye \
+            bash -c 'python3 -m pip install --user --quiet -r packaging/requirements.txt &&
+                     python3 packaging/build.py --version "$0" && ./dist/prherd/prherd --version' "$VERSION"
+
       - name: Package (Linux)
         if: runner.os == 'Linux'
-        run: |-
-          dist/prherd/prherd --version
-          mkdir -p out
-          tar -C dist -czf "out/prherd-${VERSION}-linux-x64.tar.gz" prherd
+        run: bash packaging/linux.sh "$VERSION"
 
       - name: Upload build
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -265,16 +233,15 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Publish release
+    name: ${{ needs.version.outputs.release == 'true' && 'Publish release' || 'Write release notes (dry run)' }}
     needs: [version, build]
-    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     env:
       VERSION: ${{ needs.version.outputs.version }}
       TAG: ${{ needs.version.outputs.tag }}
-      TARGET: ${{ needs.version.outputs.target }}
+      RELEASE: ${{ needs.version.outputs.release }}
       PRERELEASE: ${{ needs.version.outputs.prerelease }}
     steps:
       - name: Checkout
@@ -299,36 +266,48 @@ jobs:
         with:
           openrouter-api-key: ${{ secrets.OPENROUTER_API_KEY }}
           tag: ${{ needs.version.outputs.tag }}
-          target: ${{ needs.version.outputs.target }}
+          target: ${{ github.sha }}
           tag-pattern: 'v[0-9]*'
           title-template: '{tag} - {title}'
+          append-changelog-link: ${{ needs.version.outputs.release }}  # a dry run's tag never exists
 
-      - name: Publish
+      - name: Add the download table
         env:
-          GH_TOKEN: ${{ github.token }}
-          EVENT: ${{ github.event_name }}
-          TITLE: ${{ steps.notes.outputs.title }}
           NOTES_FILE: ${{ steps.notes.outputs.notes-file }}
+          TITLE: ${{ steps.notes.outputs.title }}
         run: |-
-          # The generated notes, then which file is which.
+          f() { printf '`prherd-%s-%s`' "$VERSION" "$1"; }
           { cat "$NOTES_FILE"; cat <<EOF
 
           ## Download
 
-          | Platform | File |
+          | Platform | Get |
           | --- | --- |
-          | macOS (Apple silicon) | \`prherd-$VERSION-macos-arm64.dmg\` |
-          | Windows (x64) | \`prherd-$VERSION-windows-x64.zip\` |
-          | Linux (x64) | \`prherd-$VERSION-linux-x64.tar.gz\` |
+          | macOS, Apple silicon | $(f macos-arm64.dmg) |
+          | macOS, Intel | $(f macos-x64.dmg) |
+          | Windows, x64 | $(f windows-x64.zip) |
+          | Windows, ARM | $(f windows-arm64.zip) |
+          | Windows, 32-bit | $(f windows-x86.zip) |
+          | Debian, Ubuntu, Mint | $(f linux-x64.deb), or \`-linux-arm64.deb\` |
+          | Fedora, RHEL, Rocky, Alma, openSUSE | $(f linux-x64.rpm), or \`-linux-arm64.rpm\` |
+          | Arch, Manjaro | $(f linux-x64.pkg.tar.zst), or \`-linux-arm64.pkg.tar.zst\` |
+          | Any other Linux | $(f linux-x64.AppImage) or \`.tar.gz\`, and their \`-linux-arm64\` builds |
 
           prherd runs the [GitHub CLI](https://cli.github.com) (\`gh\` 2.48 or newer), signed in with merge
-          rights on the repos you watch. Checksums are in \`SHA256SUMS.txt\`. The Windows build isn't
-          code-signed, so SmartScreen asks first: choose **More info**, then **Run anyway**.
+          rights on the repos you watch. Checksums are in \`SHA256SUMS.txt\`. The Windows builds aren't
+          code-signed, so SmartScreen asks first: choose **More info**, then **Run anyway**. The Linux
+          builds need glibc 2.31 or newer (Debian 11, Ubuntu 20.04, RHEL 9 and later).
           EOF
           } > "$RUNNER_TEMP/notes.md"
-          { echo "## $TITLE"; echo; cat "$RUNNER_TEMP/notes.md"; } >> "$GITHUB_STEP_SUMMARY"
-          args=(--title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md")
+          { echo "## $TITLE"; echo; cat "$RUNNER_TEMP/notes.md"; echo; echo '```'; ls -l out; echo '```'; } \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish
+        if: needs.version.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: ${{ steps.notes.outputs.title }}
+        run: |-
+          args=(--title "$TITLE" --notes-file "$RUNNER_TEMP/notes.md" --target "$GITHUB_SHA")
           [ "$PRERELEASE" = true ] && args+=(--prerelease)
-          # A pushed tag already exists; a run by hand creates it at the commit it ran on.
-          if [ "$EVENT" = push ]; then args+=(--verify-tag); else args+=(--target "$TARGET"); fi
           gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" "${args[@]}"

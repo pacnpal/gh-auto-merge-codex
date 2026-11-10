@@ -7,31 +7,56 @@ publishes a GitHub release. The Windows build is not code-signed (see
 
 ## Cutting a release
 
-The version comes from whatever starts the run:
+The workflow runs only when started by hand, never on a push, a tag or a merge:
+**Actions → Release → Run workflow**, or
 
-| Trigger | Version | Result |
-| --- | --- | --- |
-| Push a tag: `git tag v1.2.0 && git push origin v1.2.0` | `1.2.0`, from the tag | Release `v1.2.0` from that tag |
-| **Actions → Release → Run workflow**, version `1.2.0` | `1.2.0`, from the input | Tags `v1.2.0` on the chosen branch's head and releases it |
-| A pull request that touches the app or the build | `0.0.0-pr.<number>+<sha>` | Builds only, as workflow artifacts. Previews the notes in the run summary |
+```sh
+gh workflow run release.yml --repo pacnpal/prherd --ref main -f version=1.2.0
+```
 
-A version with a suffix, like `1.3.0-rc.1`, is published as a prerelease. Running it
-by hand refuses a version whose tag already exists.
+| Input | What it does |
+| --- | --- |
+| `version` | Like `1.2.0`. The run tags `v1.2.0` on the commit it ran on, and refuses a tag that already exists. A suffix, like `1.3.0-rc.1`, makes a prerelease. |
+| `dry-run` | Builds, signs and notarizes everything and writes the notes to the run summary, but publishes nothing and makes no tag. Add `-f dry-run=true`. The builds are the run's artifacts. |
 
 The version goes into the app (`prherd --version`), the macOS `Info.plist`
 (`CFBundleShortVersionString` takes the `x.y.z` part, `CFBundleVersion` the run number),
-the Windows file properties, and the file names.
+the Windows file properties, the Linux packages' versions, and the file names.
+
+Pull requests run only the tests (`.github/workflows/test.yml`).
 
 ## What gets built
 
-| Platform | Runner | Artifact |
+| Platform | Runner | Files |
 | --- | --- | --- |
-| macOS (Apple silicon) | `macos-latest` | `prherd-<version>-macos-arm64.dmg`, signed, notarized and stapled |
-| Windows (x64) | `windows-latest` | `prherd-<version>-windows-x64.zip`, not code-signed |
-| Linux (x64) | `ubuntu-22.04` | `prherd-<version>-linux-x64.tar.gz`, with `prherd.desktop` and the icon |
+| macOS, Apple silicon | `macos-latest` | `prherd-<version>-macos-arm64.dmg`, signed, notarized and stapled |
+| macOS, Intel | `macos-15-intel` | `prherd-<version>-macos-x64.dmg`, the same |
+| Windows, x64 | `windows-latest` | `prherd-<version>-windows-x64.zip`, not code-signed |
+| Windows, ARM | `windows-11-arm` | `prherd-<version>-windows-arm64.zip`, the same |
+| Windows, 32-bit | `windows-latest`, 32-bit Python | `prherd-<version>-windows-x86.zip`, the same |
+| Linux, x64 | `ubuntu-24.04` | `prherd-<version>-linux-x64` as `.tar.gz`, `.deb`, `.rpm`, `.pkg.tar.zst` and `.AppImage` |
+| Linux, ARM | `ubuntu-24.04-arm` | `prherd-<version>-linux-arm64`, the same five |
 
-`SHA256SUMS.txt` covers all three. Linux is built on the oldest supported Ubuntu so its
-bundled glibc runs on older distributions too. There's no Intel macOS build.
+`SHA256SUMS.txt` covers them all.
+
+**Linux** builds inside the `python:3.13-bullseye` image, so the app links against Debian 11's
+glibc (2.31). That's the oldest glibc of the distributions still in use with Python 3.13 to
+hand: the builds run on Debian 11+, Ubuntu 20.04+, RHEL/Rocky/Alma 9+, Fedora, openSUSE and
+Arch. `packaging/linux.sh` then packages that one build each way on the runner, with
+[fpm](https://fpm.readthedocs.io) and [appimagetool](https://github.com/AppImage/appimagetool):
+
+| File | For | Installs to |
+| --- | --- | --- |
+| `.deb` | Debian, Ubuntu, Mint, Pop!_OS | `/opt/prherd`, with `prherd` on the PATH and a menu entry |
+| `.rpm` | Fedora, RHEL, Rocky, Alma, openSUSE | the same |
+| `.pkg.tar.zst` | Arch, Manjaro, EndeavourOS (`pacman -U`) | the same |
+| `.AppImage` | any other distribution | nowhere: `chmod +x` it and run it |
+| `.tar.gz` | anywhere | nowhere: unpack it and run `prherd/prherd` |
+
+The app carries its own Tk and X11 libraries, but not `libxcb` or fonts, which every desktop
+has. The `.deb`, `.rpm` and Arch packages depend on them, so a minimal install fetches them.
+Each package was installed on a fresh Debian 11, Ubuntu 24.04, Rocky 9, Fedora or Arch and
+opened its window.
 
 `packaging/build.py` does the build on each runner, the same way it runs locally:
 
@@ -39,6 +64,8 @@ bundled glibc runs on older distributions too. There's no Intel macOS build.
 python3 -m pip install -r packaging/requirements.txt
 python3 packaging/build.py --version 1.2.0
 ```
+
+On Linux, `bash packaging/linux.sh 1.2.0` then makes the packages in `out/`.
 
 It writes the version into a copy of `prherd.py`, makes the platform's icon from
 `assets/prherd.png` (`.icns` on macOS, `.ico` on Windows), and runs PyInstaller. The
